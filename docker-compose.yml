@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DIACARE_SECRET_KEY=change-me-in-production
+      - DIACARE_DATABASE_URL=sqlite:///./diacare.db
+      - DIACARE_CORS_ORIGINS=http://localhost:5173,http://localhost:4173
+    volumes:
+      - backend_data:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "4173:4173"
+    depends_on:
+      - backend
+
+volumes:
+  backend_data:
