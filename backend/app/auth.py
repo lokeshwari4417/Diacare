@@ -5,6 +5,8 @@ RBAC is enforced server-side here (Section 9: "Role-based access control
 enforced server-side on every endpoint, not just hidden in the UI").
 """
 import uuid
+import os
+import random
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,14 +16,16 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .database import get_db
 from .security import hash_password, verify_password, create_access_token, decode_access_token
+from .mail_service import send_email
+from .email_templates import welcome_email_template, password_reset_template, otp_verification_template
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
-# In-memory reset-token store for the demo password-reset flow.
-# A production build would email a signed, expiring token instead.
+# In-memory stores for reset & OTP tokens.
 _RESET_TOKENS = {}
+_OTP_TOKENS = {}
 
 
 def get_current_user(
@@ -71,6 +75,12 @@ def register(payload: schemas.UserRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
+    try:
+        subject, html, text = welcome_email_template(user.name)
+        send_email(user.email, subject, html, text)
+    except Exception as e:
+        print(f"Failed to send welcome email: {e}")
+
     token = create_access_token({"sub": user.id, "role": user.role.value})
     return schemas.Token(access_token=token, user=schemas.UserOut.model_validate(user))
 
@@ -101,8 +111,16 @@ def forgot_password(payload: schemas.PasswordResetRequest, db: Session = Depends
     if user:
         reset_token = str(uuid.uuid4())
         _RESET_TOKENS[payload.email] = reset_token
-        # In production this would be emailed. For this demo build we
-        # return it directly so the flow is testable end-to-end.
+        
+        frontend_url = os.getenv("DIACARE_FRONTEND_URL", "http://localhost:5173")
+        reset_link = f"{frontend_url}/forgot-password?token={reset_token}&email={user.email}"
+        
+        try:
+            subject, html, text = password_reset_template(user.name, reset_link)
+            send_email(user.email, subject, html, text)
+        except Exception as e:
+            print(f"Failed to send reset email: {e}")
+            
         return {"detail": "Reset token issued", "demo_reset_token": reset_token}
     return {"detail": "If that email exists, a reset link has been sent"}
 
@@ -132,3 +150,31 @@ def change_password(
     user.hashed_password = hash_password(payload.new_password)
     db.commit()
     return {"detail": "Password updated"}
+
+
+@router.post("/send-otp")
+def send_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    otp_code = str(random.randint(100000, 999999))
+    _OTP_TOKENS[payload.email] = otp_code
+    
+    try:
+        subject, html, text = otp_verification_template(user.name, otp_code)
+        send_email(payload.email, subject, html, text)
+    except Exception as e:
+        print(f"Failed to send OTP email: {e}")
+        
+    return {"detail": "OTP sent successfully", "demo_otp": otp_code}
+
+
+@router.post("/verify-otp")
+def verify_otp(payload: schemas.VerifyOTPRequest):
+    expected = _OTP_TOKENS.get(payload.email)
+    if not expected or expected != payload.otp_code:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+    
+    del _OTP_TOKENS[payload.email]
+    return {"detail": "OTP verified successfully"}

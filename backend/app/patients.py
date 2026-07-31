@@ -13,6 +13,8 @@ from . import models, schemas, model_service, scan_service, reference_ranges
 from .database import get_db
 from .auth import get_current_user, require_roles
 from .config import RISK_THRESHOLDS
+from .mail_service import send_email
+from .email_templates import appointment_reminder_template
 
 router = APIRouter(tags=["patients"])
 
@@ -264,3 +266,41 @@ def update_report_values(
     db.commit()
     db.refresh(report)
     return report
+
+
+@router.post("/appointments", response_model=schemas.AppointmentOut)
+def create_appointment(
+    payload: schemas.AppointmentCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    patient = db.query(models.User).filter(models.User.id == payload.patient_id, models.User.role == models.RoleEnum.patient).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    doctor = db.query(models.User).filter(models.User.id == payload.doctor_id, models.User.role == models.RoleEnum.doctor).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+        
+    appointment = models.Appointment(
+        patient_id=payload.patient_id,
+        doctor_id=payload.doctor_id,
+        date=payload.date,
+        time=payload.time,
+        status="confirmed"
+    )
+    db.add(appointment)
+    db.commit()
+    db.refresh(appointment)
+
+    try:
+        subject, html, text = appointment_reminder_template(
+            user_name=patient.name,
+            appointment_date=appointment.date,
+            appointment_time=appointment.time,
+            doctor_name=doctor.name
+        )
+        send_email(patient.email, subject, html, text)
+    except Exception as e:
+        print(f"Failed to send appointment reminder email: {e}")
+
+    return appointment

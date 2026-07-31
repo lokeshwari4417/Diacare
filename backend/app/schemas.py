@@ -194,3 +194,36 @@ class AdminStats(BaseModel):
     total_ngo_workers: int
     total_screenings: int
     risk_band_distribution: dict
+
+
+# ---------- OTP ----------
+
+class SendOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp_code: str
+
+
+# ---------- Appointment ----------
+
+class AppointmentCreate(BaseModel):
+    patient_id: str
+    doctor_id: str
+    date: str
+    time: str
+
+
+class AppointmentOut(BaseModel):
+    id: str
+    patient_id: str
+    doctor_id: str
+    date: str
+    time: str
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

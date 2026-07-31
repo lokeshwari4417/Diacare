@@ -87,3 +87,18 @@ class Report(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     patient = relationship("User", foreign_keys=[patient_id], back_populates="reports")
+
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=False)
+    doctor_id = Column(String, ForeignKey("users.id"), nullable=False)
+    date = Column(String, nullable=False)
+    time = Column(String, nullable=False)
+    status = Column(String, default="confirmed")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+    doctor = relationship("User", foreign_keys=[doctor_id])
