@@ -3,6 +3,9 @@ import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import { api } from '../api'
+import ShareDoctorModal from '../components/shared/ShareDoctorModal'
+import MobileCameraCapture from '../components/lab/MobileCameraCapture'
+
 
 const MANDATORY_DISCLAIMER = (
   "This AI system is designed to assist in interpreting laboratory reports and providing educational insights. " +
@@ -14,31 +17,63 @@ export default function NewLabReportPage() {
   const navigate = useNavigate()
   const { reportId } = useParams()
 
+  const [mode, setMode] = useState('manual') // 'manual' | 'upload'
   const [referenceTests, setReferenceTests] = useState([])
   const [labName, setLabName] = useState('Diagnostic Laboratory')
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0])
+  const [selectedFile, setSelectedFile] = useState(null)
+
   const [rows, setRows] = useState([
-    { test_name: 'Fasting Glucose', value: '', unit: 'mg/dL' },
-    { test_name: 'HbA1c', value: '', unit: '%' }
+    { test_name: 'Fasting Glucose', value: '', unit: 'mg/dL', is_matched: true },
+    { test_name: 'HbA1c', value: '', unit: '%', is_matched: true }
   ])
 
   const [loading, setLoading] = useState(false)
+  const [ocrScanning, setOcrScanning] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [showShareModal, setShowShareModal] = useState(false)
   const [error, setError] = useState('')
   const [reportData, setReportData] = useState(null)
+  const [draftReportId, setDraftReportId] = useState(null)
 
-  // Fetch reference tests for typeahead / autocomplete
+  const handleDownloadPdf = async () => {
+    if (!reportData?.id) return
+    setDownloadingPdf(true)
+    try {
+      await api.downloadSingleReportPdf(reportData.id)
+    } catch (err) {
+      alert('Failed to download PDF: ' + err.message)
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+
+  // Fetch reference tests & patient lab profile
   useEffect(() => {
-    async function loadReference() {
+    async function loadInitialData() {
       try {
-        const res = await api.getLabReference()
-        if (res && res.tests) setReferenceTests(res.tests)
+        const [refRes, profRes] = await Promise.all([
+          api.getLabReference(),
+          api.getPatientLabProfile('me').catch(() => null),
+        ])
+        if (refRes && refRes.tests) setReferenceTests(refRes.tests)
+        if (profRes && (profRes.age_years || profRes.sex)) {
+          setProfile({
+            age_years: profRes.age_years || '',
+            sex: profRes.sex || 'male',
+            is_pregnant: !!profRes.is_pregnant,
+          })
+          setProfileSaved(true)
+        }
       } catch (err) {
-        console.error("Failed to load lab reference data:", err)
+        console.error("Failed to load initial lab reference/profile:", err)
       }
     }
-    loadReference()
+    loadInitialData()
   }, [])
+
 
   // Load existing report if reportId is in URL
   useEffect(() => {
@@ -47,7 +82,11 @@ export default function NewLabReportPage() {
       setLoading(true)
       try {
         const data = await api.getLabReport(reportId)
-        setReportData(data)
+        if (data.status === 'completed') {
+          setReportData(data)
+        } else if (data.status === 'pending_review') {
+          setDraftReportId(data.id)
+        }
       } catch (err) {
         setError(err.message)
       } finally {
@@ -65,6 +104,7 @@ export default function NewLabReportPage() {
     newRows[index].test_name = selectedName
     if (matched) {
       newRows[index].unit = matched.unit
+      newRows[index].is_matched = true
     }
     setRows(newRows)
   }
@@ -76,7 +116,7 @@ export default function NewLabReportPage() {
   }
 
   const addRow = () => {
-    setRows([...rows, { test_name: '', value: '', unit: 'mg/dL' }])
+    setRows([...rows, { test_name: '', value: '', unit: 'mg/dL', is_matched: true }])
   }
 
   const removeRow = (index) => {
@@ -84,6 +124,68 @@ export default function NewLabReportPage() {
     setRows(rows.filter((_, i) => i !== index))
   }
 
+  // Phase 2 OCR Upload Handler
+  const handleUploadSubmit = async (e) => {
+    e.preventDefault()
+    if (!selectedFile) {
+      setError('Please select an image or PDF lab report file.')
+      return
+    }
+    setError('')
+    setOcrScanning(true)
+    try {
+      const draft = await api.uploadLabReport(selectedFile, labName)
+      setDraftReportId(draft.report_id)
+      
+      if (draft.extracted_rows && draft.extracted_rows.length > 0) {
+        const mappedRows = draft.extracted_rows.map((item) => ({
+          test_name: item.test_name_matched || item.test_name_raw,
+          value: item.value !== null ? item.value : '',
+          unit: item.unit || 'mg/dL',
+          is_matched: item.is_matched,
+        }))
+        setRows(mappedRows)
+      } else {
+        setError('OCR complete: No lab values automatically detected. Please enter values manually.')
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to scan report file.')
+    } finally {
+      setOcrScanning(false)
+    }
+  }
+
+  // Phase 11 Mobile Camera Capture Handler
+  const handleCameraCaptureComplete = async (capturedFile, pageCount) => {
+    setError('')
+    setOcrScanning(true)
+    try {
+      const draft = await api.uploadLabReport(capturedFile, labName)
+      setDraftReportId(draft.report_id)
+      setMode('upload') // Switch to review view
+      
+      if (draft.extracted_rows && draft.extracted_rows.length > 0) {
+        const mappedRows = draft.extracted_rows.map((item) => ({
+          test_name: item.test_name_matched || item.test_name_raw,
+          value: item.value !== null && item.value !== undefined ? item.value : '',
+          unit: item.unit || 'mg/dL',
+          is_matched: item.is_matched,
+          needs_review: item.needs_review,
+          review_reason: item.review_reason,
+        }))
+        setRows(mappedRows)
+      } else {
+        setError('Camera scan complete: No lab values automatically detected. Please verify or enter values manually.')
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to process camera scan image.')
+    } finally {
+      setOcrScanning(false)
+    }
+  }
+
+
+  // Confirm Draft OR Submit Manual Entry
   const submitForm = async (e) => {
     e.preventDefault()
     setError('')
@@ -103,14 +205,25 @@ export default function NewLabReportPage() {
 
     setSubmitting(true)
     try {
-      const res = await api.createLabReport({
-        lab_name: labName,
-        report_date: reportDate,
-        results: validResults,
-      })
-      navigate(`/lab/report/${res.report_id}`)
+      if (draftReportId) {
+        // Phase 2 Confirm
+        const res = await api.confirmLabReport(draftReportId, {
+          lab_name: labName,
+          report_date: reportDate,
+          results: validResults,
+        })
+        navigate(`/lab/report/${res.report_id}`)
+      } else {
+        // Phase 1 Manual Create
+        const res = await api.createLabReport({
+          lab_name: labName,
+          report_date: reportDate,
+          results: validResults,
+        })
+        navigate(`/lab/report/${res.report_id}`)
+      }
     } catch (err) {
-      setError(err.message || 'Failed to submit lab report.')
+      setError(err.message || 'Failed to analyze lab report.')
     } finally {
       setSubmitting(false)
     }
@@ -126,7 +239,6 @@ export default function NewLabReportPage() {
 
   // Render Analysis Results View if reportData exists
   if (reportData) {
-    // Group test results by category
     const categoryMap = {}
     reportData.test_results.forEach((tr) => {
       if (!categoryMap[tr.category]) categoryMap[tr.category] = []
@@ -151,12 +263,40 @@ export default function NewLabReportPage() {
             <h1 className="text-2xl font-display font-bold text-ink">Lab Analysis Report</h1>
             <p className="text-xs text-muted mt-1">
               Facility: <span className="font-semibold text-ink">{reportData.lab_name}</span> | Date: {reportData.report_date}
+              {reportData.source_type && (
+                <span className="ml-2 uppercase tracking-wider bg-slate-100 border border-slate-200 text-slate-700 px-2 py-0.5 rounded text-[10px] font-bold">
+                  Source: {reportData.source_type}
+                </span>
+              )}
             </p>
           </div>
-          <Link to="/lab/new" className="btn-primary text-xs flex items-center gap-1">
-            + New Lab Report
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={downloadingPdf}
+              className="btn-secondary text-xs flex items-center gap-1.5"
+            >
+              {downloadingPdf ? 'Downloading PDF...' : '📄 Download PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowShareModal(true)}
+              className="btn-primary text-xs flex items-center gap-1.5"
+            >
+              🔗 Share with Doctor
+            </button>
+          </div>
         </div>
+
+        {/* Share Doctor Modal */}
+        {showShareModal && (
+          <ShareDoctorModal
+            reportId={reportData.id}
+            onClose={() => setShowShareModal(false)}
+          />
+        )}
+
 
         {/* 1. Risk Flags Section */}
         {reportData.risk_flags && reportData.risk_flags.length > 0 && (
@@ -293,51 +433,208 @@ export default function NewLabReportPage() {
     )
   }
 
-  // Render Manual Entry Form
+  // Render Entry Form (Manual vs Upload OCR Draft Review)
   return (
     <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto space-y-6">
       <div className="glass-card">
-        <h1 className="text-2xl font-display font-bold text-ink">New Lab Report Analysis</h1>
-        <p className="text-sm text-muted mt-1">
-          Enter laboratory test values manually to receive instant reference range interpretations and Tier-1 rule-based risk evaluation.
-        </p>
-
-        <form onSubmit={submitForm} className="space-y-6 mt-6">
-          {/* Metadata */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label-text">Laboratory Facility Name</label>
-              <input
-                type="text"
-                className="input-field border-primary/10"
-                value={labName}
-                onChange={(e) => setLabName(e.target.value)}
-                placeholder="e.g. Quest Diagnostics / Metropolis Lab"
-              />
-            </div>
-            <div>
-              <label className="label-text">Report Date</label>
-              <input
-                type="date"
-                className="input-field border-primary/10"
-                value={reportDate}
-                onChange={(e) => setReportDate(e.target.value)}
-              />
-            </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h1 className="text-2xl font-display font-bold text-ink">New Lab Report Analysis</h1>
+            <p className="text-sm text-muted mt-0.5">Phase 1 & Phase 2: Manual entry or Image/PDF OCR upload with human review.</p>
           </div>
 
-          {/* Test Entries */}
+          {/* Mode Switcher Tabs */}
+          {!draftReportId && (
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setMode('manual')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  mode === 'manual' ? 'bg-white text-primary shadow-xs' : 'text-muted hover:text-ink'
+                }`}
+              >
+                Manual Entry
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('upload')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  mode === 'upload' ? 'bg-white text-primary shadow-xs' : 'text-muted hover:text-ink'
+                }`}
+              >
+                Upload Report (Image/PDF)
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('camera')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  mode === 'camera' ? 'bg-white text-primary shadow-xs' : 'text-muted hover:text-ink'
+                }`}
+              >
+                📷 Scan Report (Camera)
+              </button>
+            </div>
+          )}
+
+        </div>
+
+        {/* Optional Demographic Profile Banner */}
+        {!profileSaved && !profileDismissed && (
+          <div className="bg-primary-light/30 border border-primary/20 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xs font-bold text-primary uppercase tracking-wider">Demographic Range Precision (Optional)</h2>
+                <p className="text-xs text-muted mt-0.5">Set age & sex to tune clinical reference bounds (e.g., Hemoglobin, Creatinine, eGFR).</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProfileDismissed(true)}
+                className="text-xs font-bold text-muted hover:text-ink"
+              >
+                Skip for now
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="w-24">
+                <label className="text-[10px] font-bold uppercase text-muted">Age (Years)</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 35"
+                  className="input-field text-xs bg-white py-1.5"
+                  value={profile.age_years}
+                  onChange={(e) => setProfile({ ...profile, age_years: e.target.value })}
+                />
+              </div>
+              <div className="w-28">
+                <label className="text-[10px] font-bold uppercase text-muted">Sex</label>
+                <select
+                  className="input-field text-xs bg-white py-1.5"
+                  value={profile.sex}
+                  onChange={(e) => setProfile({ ...profile, sex: e.target.value })}
+                >
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              {profile.sex === 'female' && (
+                <label className="flex items-center gap-1.5 text-xs text-ink mt-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={profile.is_pregnant}
+                    onChange={(e) => setProfile({ ...profile, is_pregnant: e.target.checked })}
+                  />
+                  Pregnant
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await api.updatePatientLabProfile('me', {
+                      age_years: profile.age_years ? parseInt(profile.age_years) : null,
+                      sex: profile.sex,
+                      is_pregnant: profile.is_pregnant,
+                    })
+                    setProfileSaved(true)
+                  } catch (e) {
+                    console.error(e)
+                  }
+                }}
+                className="btn-primary text-xs py-1.5 px-3 mt-4"
+              >
+                Save Profile
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Upload Form Box if mode === 'upload' and no draft loaded yet */}
+        {mode === 'upload' && !draftReportId && (
+          <form onSubmit={handleUploadSubmit} className="mb-6 bg-primary-light/20 border border-primary/15 rounded-2xl p-4 space-y-4">
+            <h2 className="text-sm font-bold text-primary">Upload Lab Document (Image or PDF)</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label-text">Select Document File (.jpg, .png, .pdf)</label>
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg, image/jpg, application/pdf"
+                  required
+                  onChange={(e) => setSelectedFile(e.target.files[0])}
+                  className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-primary-dark cursor-pointer"
+                />
+              </div>
+              <div>
+                <label className="label-text">Facility Name</label>
+                <input
+                  type="text"
+                  className="input-field border-primary/10 bg-white text-sm"
+                  value={labName}
+                  onChange={(e) => setLabName(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={ocrScanning}
+              className="btn-primary w-full justify-center flex text-xs py-2.5"
+            >
+              {ocrScanning ? 'Scanning Document via Gemini Vision...' : 'Extract Lab Data with AI'}
+            </button>
+          </form>
+        )}
+
+        {/* Phase 11: Camera Capture Box if mode === 'camera' and no draft loaded yet */}
+        {mode === 'camera' && !draftReportId && (
+          <div className="mb-6">
+            <MobileCameraCapture
+              onCaptureComplete={handleCameraCaptureComplete}
+              onCancel={() => setMode('upload')}
+            />
+          </div>
+        )}
+
+        {/* Human Review Banner if Draft Loaded */}
+
+        {draftReportId && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-blue-900">Review AI-Extracted Lab Data</p>
+              <p className="text-[11px] text-blue-700 font-medium">Please review, correct, or add test rows below before confirming analysis.</p>
+            </div>
+            <span className="pill text-[10px] font-bold bg-blue-100 text-blue-800 uppercase border border-blue-300">
+              Pending Review
+            </span>
+          </div>
+        )}
+
+        {/* Main Test Results Entry & Review Form */}
+        <form onSubmit={submitForm} className="space-y-6">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-ink">Test Results Panel</h2>
-              <span className="text-xs text-muted">Select from 20 common tests or type test name</span>
+              <span className="text-xs text-muted">Review canonical test names and numeric values</span>
             </div>
 
             {rows.map((row, idx) => (
               <div key={idx} className="flex flex-wrap sm:flex-nowrap items-center gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/60">
                 {/* Searchable / Typeahead Select */}
                 <div className="flex-1 min-w-[200px]">
-                  <label className="text-[10px] font-bold text-muted uppercase">Test Name</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-muted uppercase">Test Name</label>
+                    {row.needs_review && (
+                      <span className="text-[9px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded border border-rose-300">
+                        ⚠️ Needs Review {row.review_reason ? `(${row.review_reason})` : ''}
+                      </span>
+                    )}
+                    {row.is_matched === false && !row.needs_review && (
+                      <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">
+                        Unmatched - Verify
+                      </span>
+                    )}
+                  </div>
+
                   <input
                     list="lab-tests-list"
                     type="text"
@@ -417,7 +714,11 @@ export default function NewLabReportPage() {
             disabled={submitting}
             className="btn-primary w-full justify-center flex text-sm py-3"
           >
-            {submitting ? 'Analyzing Lab Report...' : 'Analyze Lab Report'}
+            {submitting
+              ? 'Analyzing Lab Report...'
+              : draftReportId
+              ? 'Confirm & Analyze Report'
+              : 'Analyze Lab Report'}
           </button>
         </form>
       </div>

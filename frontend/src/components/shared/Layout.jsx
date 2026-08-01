@@ -2,29 +2,41 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../../context/AuthContext'
 import LanguageSwitcher from './LanguageSwitcher'
+import NotificationBell from './NotificationBell'
 import Chatbot from './Chatbot'
+
 
 const NAV_BY_ROLE = {
   patient: [
     { to: '/patient', labelKey: 'nav.newScreening', end: true },
     { to: '/patient/history', labelKey: 'nav.previousScans' },
     { to: '/lab/new', label: 'Lab Analysis' },
+    { to: '/lab/history', label: 'Lab History' },
+    { to: '/lab/trends', label: 'Trends' },
   ],
   doctor: [
     { to: '/doctor', labelKey: 'nav.patients', end: true },
     { to: '/doctor/new-patient', labelKey: 'nav.createProfile' },
     { to: '/lab/new', label: 'Lab Analysis' },
+    { to: '/lab/history', label: 'Lab History' },
+    { to: '/lab/trends', label: 'Trends' },
   ],
   ngo: [
     { to: '/ngo', labelKey: 'nav.patients', end: true },
     { to: '/ngo/new-patient', labelKey: 'nav.createProfile' },
     { to: '/lab/new', label: 'Lab Analysis' },
+    { to: '/lab/history', label: 'Lab History' },
+    { to: '/lab/trends', label: 'Trends' },
   ],
   admin: [
     { to: '/admin', labelKey: 'nav.userManagement', end: true },
     { to: '/lab/new', label: 'Lab Analysis' },
+    { to: '/lab/history', label: 'Lab History' },
+    { to: '/lab/trends', label: 'Trends' },
   ],
 }
+
+
 
 export default function Layout() {
   const { t } = useTranslation()
@@ -60,8 +72,10 @@ export default function Layout() {
 
 
           <div className="flex items-center gap-1.5">
+            <NotificationBell />
             <LanguageSwitcher />
             <NavLink to="/profile" className={({ isActive }) =>
+
               `w-9 h-9 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-primary text-white' : 'bg-primary-light text-primary hover:bg-primary/20'}`
             } aria-label="Profile">
               <UserIcon />

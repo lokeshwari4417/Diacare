@@ -18,6 +18,12 @@ import ClinicianScreeningPage from './pages/ClinicianScreeningPage'
 import AdminPage from './pages/AdminPage'
 import AboutModelPage from './pages/AboutModelPage'
 import NewLabReportPage from './pages/NewLabReportPage'
+import LabHistoryPage from './pages/LabHistoryPage'
+import LabTrendsDashboardPage from './pages/LabTrendsDashboardPage'
+import PublicSharedReportPage from './pages/PublicSharedReportPage'
+
+import DoctorLoginPage from './pages/DoctorLoginPage'
+import DoctorPortalDashboard from './pages/DoctorPortalDashboard'
 
 function HomeRedirect() {
   const { user, loading } = useAuth()
@@ -34,6 +40,11 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/shared/:token" element={<PublicSharedReportPage />} />
+          <Route path="/doctor-login" element={<DoctorLoginPage />} />
+          <Route path="/doctor-portal" element={<DoctorPortalDashboard />} />
+
+
 
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
@@ -41,6 +52,10 @@ export default function App() {
               <Route path="/about-model" element={<AboutModelPage />} />
               <Route path="/lab/new" element={<NewLabReportPage />} />
               <Route path="/lab/report/:reportId" element={<NewLabReportPage />} />
+              <Route path="/lab/history" element={<LabHistoryPage />} />
+              <Route path="/lab/trends" element={<LabTrendsDashboardPage />} />
+
+
 
 
               <Route element={<ProtectedRoute allowedRoles={['patient']} />}>

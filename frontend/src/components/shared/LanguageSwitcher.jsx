@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next'
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
+  { code: 'ta', label: 'தமிழ்' },
   { code: 'es', label: 'Español' },
   { code: 'hi', label: 'हिन्दी' },
 ]
+
 
 export default function LanguageSwitcher() {
   const { i18n } = useTranslation()
