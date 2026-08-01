@@ -16,8 +16,9 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .database import get_db
 from .security import hash_password, verify_password, create_access_token, decode_access_token
-from .mail_service import send_email
+from .mail_service import send_email, send_otp_email
 from .email_templates import welcome_email_template, password_reset_template, otp_verification_template
+
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -130,8 +131,7 @@ def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
     db.commit()
 
     try:
-        subject, html, text = otp_verification_template(user.name, otp_code)
-        send_email(user.email, subject, html, text)
+        send_otp_email(user.email, otp_code)
     except Exception as e:
         print(f"Failed to send OTP email: {e}")
         
@@ -141,6 +141,7 @@ def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
         "requires_otp": True,
         "demo_otp": otp_code
     }
+
 
 
 @router.post("/logout")
@@ -207,12 +208,12 @@ def send_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
     db.commit()
     
     try:
-        subject, html, text = otp_verification_template(user.name, otp_code)
-        send_email(payload.email, subject, html, text)
+        send_otp_email(payload.email, otp_code)
     except Exception as e:
         print(f"Failed to send OTP email: {e}")
         
     return {"detail": "OTP sent successfully", "demo_otp": otp_code}
+
 
 
 @router.post("/verify-otp")
@@ -263,8 +264,7 @@ def resend_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
     db.commit()
     
     try:
-        subject, html, text = otp_verification_template(user.name, otp_code)
-        send_email(payload.email, subject, html, text)
+        send_otp_email(payload.email, otp_code)
     except Exception as e:
         print(f"Failed to send OTP email: {e}")
         
@@ -273,4 +273,5 @@ def resend_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
         "email": user.email,
         "demo_otp": otp_code
     }
+
 
