@@ -48,7 +48,11 @@ class User(Base):
     role = Column(Enum(RoleEnum), nullable=False)
     information = Column(Text, nullable=True)  # free-text profile "Information" field
     is_active = Column(Boolean, default=True)
+    status = Column(String, default="active", nullable=False)  # "active" | "pending" | "rejected"
+    otp_code = Column(String, nullable=True)
+    otp_expiry = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
     # For patient users created & managed by a doctor/NGO worker
     managed_by_id = Column(String, ForeignKey("users.id"), nullable=True)

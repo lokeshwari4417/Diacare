@@ -48,3 +48,16 @@ def otp_verification_template(user_name: str, otp_code: str):
     """
     text = f"Hi {user_name}, your OTP is {otp_code}. It expires in 10 minutes."
     return subject, html, text
+
+
+def account_approved_template(user_name: str, login_link: str):
+    subject = "Your DiaCare Account Has Been Approved!"
+    html = f"""
+    <h2>Account Approved</h2>
+    <p>Hi {user_name},</p>
+    <p>Great news! Your account has been reviewed and approved by the administrator.</p>
+    <p>You can now log in to the application. Your login will require a one-time verification code sent to your email.</p>
+    <p><a href="{login_link}">Log In Now</a></p>
+    """
+    text = f"Hi {user_name}, your DiaCare account has been approved. Log in here: {login_link}"
+    return subject, html, text

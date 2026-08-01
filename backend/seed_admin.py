@@ -12,22 +12,40 @@ from app.security import hash_password
 Base.metadata.create_all(bind=engine)
 db = SessionLocal()
 
+# Remove old/misspelled admin users
+db.query(models.User).filter(
+    models.User.email.in_(["admin@diacare.demo", "lokeshwaritharunumar@gmail.com"])
+).delete(synchronize_session=False)
+db.commit()
+
 DEMO_USERS = [
-    ("Admin User", "admin@diacare.demo", "admin123", models.RoleEnum.admin),
     ("Dr. Asha Rao", "doctor@diacare.demo", "doctor123", models.RoleEnum.doctor),
     ("HopeWell NGO Worker", "ngo@diacare.demo", "ngo12345", models.RoleEnum.ngo),
     ("Priya Patient", "patient@diacare.demo", "patient123", models.RoleEnum.patient),
+    ("System Admin", "lokeshwaritharunkumar@gmail.com", "sandhiya@12345", models.RoleEnum.admin),
 ]
 
 for name, email, password, role in DEMO_USERS:
     existing = db.query(models.User).filter(models.User.email == email).first()
     if existing:
-        print(f"Skipping {email} -- already exists")
+        # If the custom admin already exists, update its password and role/status
+        existing.hashed_password = hash_password(password)
+        existing.status = "active"
+        existing.is_active = True
+        print(f"Updated password & status for {email}")
         continue
-    user = models.User(name=name, email=email, hashed_password=hash_password(password), role=role)
+    user = models.User(
+        name=name,
+        email=email,
+        hashed_password=hash_password(password),
+        role=role,
+        status="active"
+    )
     db.add(user)
     print(f"Created {role.value}: {email} / {password}")
 
 db.commit()
 db.close()
 print("Done. You can now log in with any of the demo accounts above.")
+
+

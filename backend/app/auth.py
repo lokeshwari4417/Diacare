@@ -42,7 +42,7 @@ def get_current_user(
     if not payload or "sub" not in payload:
         raise credentials_exception
     user = db.query(models.User).filter(models.User.id == payload["sub"]).first()
-    if not user or not user.is_active:
+    if not user or not user.is_active or user.status != "active":
         raise credentials_exception
     return user
 
@@ -58,11 +58,16 @@ def require_roles(*roles: str):
     return dependency
 
 
-@router.post("/register", response_model=schemas.Token)
+@router.post("/register")
 def register(payload: schemas.UserRegister, db: Session = Depends(get_db)):
     existing = db.query(models.User).filter(models.User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="An account with this email already exists")
+
+    if payload.role == "admin":
+        raise HTTPException(status_code=403, detail="Cannot register as an admin")
+
+    status_val = "active" if payload.role == "patient" else "pending"
 
     user = models.User(
         name=payload.name,
@@ -70,44 +75,82 @@ def register(payload: schemas.UserRegister, db: Session = Depends(get_db)):
         mobile=payload.mobile,
         hashed_password=hash_password(payload.password),
         role=models.RoleEnum(payload.role),
+        status=status_val,
+        information=payload.information,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    try:
-        subject, html, text = welcome_email_template(user.name)
-        send_email(user.email, subject, html, text)
-    except Exception as e:
-        print(f"Failed to send welcome email: {e}")
+    if payload.role == "patient":
+        try:
+            subject, html, text = welcome_email_template(user.name)
+            send_email(user.email, subject, html, text)
+        except Exception as e:
+            print(f"Failed to send welcome email: {e}")
 
-    token = create_access_token({"sub": user.id, "role": user.role.value})
-    return schemas.Token(access_token=token, user=schemas.UserOut.model_validate(user))
+        token = create_access_token({"sub": user.id, "role": user.role.value})
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": schemas.UserOut.model_validate(user),
+            "status": "active"
+        }
+    else:
+        try:
+            subject = "DiaCare Registration Received"
+            html = f"<h2>Registration Received</h2><p>Hi {user.name}, your registration is pending admin approval.</p>"
+            send_email(user.email, subject, html, html)
+        except Exception as e:
+            print(f"Failed to send registration received email: {e}")
+
+        return {
+            "detail": "Your registration was successful and is pending admin approval.",
+            "status": "pending"
+        }
 
 
-@router.post("/login", response_model=schemas.Token)
+@router.post("/login")
 def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    
+    if user.status == "pending":
+        raise HTTPException(status_code=403, detail="Your account is pending admin approval.")
+    if user.status == "rejected":
+        raise HTTPException(status_code=403, detail="Your account access request has been rejected.")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="This account has been deactivated")
 
-    token = create_access_token({"sub": user.id, "role": user.role.value})
-    return schemas.Token(access_token=token, user=schemas.UserOut.model_validate(user))
+    # Generate 6-digit OTP
+    otp_code = f"{random.randint(100000, 999999)}"
+    user.otp_code = otp_code
+    user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+    db.commit()
+
+    try:
+        subject, html, text = otp_verification_template(user.name, otp_code)
+        send_email(user.email, subject, html, text)
+    except Exception as e:
+        print(f"Failed to send OTP email: {e}")
+        
+    return {
+        "detail": "OTP sent to your email",
+        "email": user.email,
+        "requires_otp": True,
+        "demo_otp": otp_code
+    }
 
 
 @router.post("/logout")
 def logout(user: models.User = Depends(get_current_user)):
-    # Stateless JWT -- logout is handled client-side by discarding the token.
-    # Endpoint kept for a consistent API surface / future token-blacklisting.
     return {"detail": "Logged out"}
 
 
 @router.post("/forgot-password")
 def forgot_password(payload: schemas.PasswordResetRequest, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
-    # Always return 200 to avoid leaking which emails are registered.
     if user:
         reset_token = str(uuid.uuid4())
         _RESET_TOKENS[payload.email] = reset_token
@@ -158,8 +201,10 @@ def send_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    otp_code = str(random.randint(100000, 999999))
-    _OTP_TOKENS[payload.email] = otp_code
+    otp_code = f"{random.randint(100000, 999999)}"
+    user.otp_code = otp_code
+    user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+    db.commit()
     
     try:
         subject, html, text = otp_verification_template(user.name, otp_code)
@@ -171,10 +216,61 @@ def send_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/verify-otp")
-def verify_otp(payload: schemas.VerifyOTPRequest):
-    expected = _OTP_TOKENS.get(payload.email)
-    if not expected or expected != payload.otp_code:
-        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+def verify_otp(payload: schemas.VerifyOTPRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    if not user.otp_code or not user.otp_expiry:
+        raise HTTPException(status_code=400, detail="No OTP code has been generated")
+        
+    if user.otp_expiry < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="OTP has expired")
+        
+    if user.otp_code != payload.otp_code:
+        raise HTTPException(status_code=400, detail="Invalid OTP code")
+        
+    user.otp_code = None
+    user.otp_expiry = None
+    db.commit()
     
-    del _OTP_TOKENS[payload.email]
-    return {"detail": "OTP verified successfully"}
+    token = create_access_token({"sub": user.id, "role": user.role.value})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": schemas.UserOut.model_validate(user)
+    }
+
+
+@router.post("/resend-otp")
+def resend_otp(payload: schemas.SendOTPRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    if user.otp_expiry and (user.otp_expiry - datetime.utcnow()) > timedelta(minutes=9):
+        seconds_passed = 600 - (user.otp_expiry - datetime.utcnow()).total_seconds()
+        wait_seconds = int(60 - seconds_passed)
+        if wait_seconds > 0:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {wait_seconds} seconds before requesting a new OTP."
+            )
+            
+    otp_code = f"{random.randint(100000, 999999)}"
+    user.otp_code = otp_code
+    user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+    db.commit()
+    
+    try:
+        subject, html, text = otp_verification_template(user.name, otp_code)
+        send_email(payload.email, subject, html, text)
+    except Exception as e:
+        print(f"Failed to send OTP email: {e}")
+        
+    return {
+        "detail": "OTP resent successfully",
+        "email": user.email,
+        "demo_otp": otp_code
+    }
+

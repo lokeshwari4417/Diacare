@@ -5,8 +5,8 @@ const ROLES = [
   { value: 'patient', icon: PatientIcon, defaultLabel: 'Patient', defaultHint: 'Screen my own risk' },
   { value: 'doctor', icon: DoctorIcon, defaultLabel: 'Doctor', defaultHint: 'Review patient reports' },
   { value: 'ngo', icon: NgoIcon, defaultLabel: 'NGO / Organization', defaultHint: 'Field screening' },
-  { value: 'admin', icon: AdminIcon, defaultLabel: 'Admin', defaultHint: 'Platform oversight' },
 ]
+
 
 export default function RoleSelector({ value, onChange }) {
   const { t } = useTranslation()

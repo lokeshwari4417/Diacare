@@ -54,6 +54,31 @@ export default function AdminPage() {
     }
   }
 
+  const handleApprove = async (u) => {
+    setBusyId(u.id)
+    try {
+      await api.approveUser(u.id)
+      load()
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleReject = async (u) => {
+    if (!confirm(`Are you sure you want to reject ${u.name}'s request?`)) return
+    setBusyId(u.id)
+    try {
+      await api.rejectUser(u.id)
+      load()
+    } catch (err) {
+      alert(err.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const handleCreateUser = async (e) => {
     e.preventDefault()
     setCreateError('')
@@ -69,7 +94,12 @@ export default function AdminPage() {
     }
   }
 
-  const filtered = filter === 'all' ? users : users.filter((u) => u.role === filter)
+  const filtered = filter === 'all'
+    ? users.filter((u) => u.status !== 'pending')
+    : filter === 'pending'
+      ? users.filter((u) => u.status === 'pending')
+      : users.filter((u) => u.role === filter && u.status !== 'pending')
+
 
   return (
     <motion.div
@@ -109,17 +139,18 @@ export default function AdminPage() {
 
       <div className="glass-card">
         <div className="flex items-center gap-1.5 overflow-x-auto pb-3 mb-4">
-          {['all', 'patient', 'doctor', 'ngo', 'admin'].map((r) => (
+          {['all', 'pending', 'patient', 'doctor', 'ngo', 'admin'].map((r) => (
             <button
               key={r} onClick={() => setFilter(r)}
               className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
                 filter === r ? 'bg-primary-light text-primary' : 'text-muted hover:bg-slate-50'
               }`}
             >
-              {r === 'all' ? t('admin.all') : t(`auth.role.${r}`)}
+              {r === 'all' ? t('admin.all') : r === 'pending' ? 'Access Requests' : t(`auth.role.${r}`)}
             </button>
           ))}
         </div>
+
 
         {loading ? (
           <div className="text-center text-muted py-8">{t('screening.scanning')}</div>
@@ -144,28 +175,69 @@ export default function AdminPage() {
                     transition={{ delay: i * 0.03 }}
                     className="border-b border-primary/5 last:border-0 hover:bg-slate-50/50 transition-all"
                   >
-                    <td className="py-3 pr-3 font-semibold text-ink">{u.name}</td>
+                    <td className="py-3 pr-3 text-ink">
+                      <div className="font-semibold">{u.name}</div>
+                      {u.information && (
+                        <div className="text-[10px] text-muted font-medium mt-0.5 max-w-[200px] truncate" title={u.information}>
+                          {u.information}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-3 pr-3 text-muted font-medium">{u.email}</td>
                     <td className="py-3 pr-3 text-ink/70 font-semibold">{t(`auth.role.${u.role}`)}</td>
                     <td className="py-3 pr-3">
-                      <span className={`pill ${u.is_active ? 'text-risk-low bg-risk-lowBg' : 'text-risk-high bg-risk-highBg'} border border-black/5`}>
-                        {u.is_active ? t('admin.active') : t('admin.deactivated')}
+                      <span className={`pill ${
+                        u.status === 'pending'
+                          ? 'text-amber-700 bg-amber-50 border border-amber-200/50'
+                          : u.status === 'rejected'
+                            ? 'text-risk-high bg-risk-highBg border border-risk-high/15'
+                            : u.is_active
+                              ? 'text-risk-low bg-risk-lowBg border border-black/5'
+                              : 'text-risk-high bg-risk-highBg border border-black/5'
+                      }`}>
+                        {u.status === 'pending'
+                          ? 'Pending Approval'
+                          : u.status === 'rejected'
+                            ? 'Rejected'
+                            : u.is_active
+                              ? t('admin.active')
+                              : t('admin.deactivated')}
                       </span>
                     </td>
-                    <td className="py-3 pr-3 text-right space-x-3">
-                      <button
-                        onClick={() => toggleActive(u)} disabled={busyId === u.id}
-                        className={`text-xs font-semibold ${u.is_active ? 'text-risk-high hover:underline' : 'text-primary hover:underline'}`}
-                      >
-                        {u.is_active ? t('admin.deactivate') : t('admin.reactivate')}
-                      </button>
-                      <button
-                        onClick={() => handleResetPassword(u)} disabled={busyId === u.id}
-                        className="text-xs font-semibold text-primary hover:underline"
-                      >
-                        {t('admin.resetPassword')}
-                      </button>
+                    <td className="py-3 pr-3 text-right">
+                      {u.status === 'pending' ? (
+                        <div className="space-x-3">
+                          <button
+                            onClick={() => handleApprove(u)} disabled={busyId === u.id}
+                            className="text-xs font-bold text-primary hover:underline"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleReject(u)} disabled={busyId === u.id}
+                            className="text-xs font-bold text-risk-high hover:underline"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-x-3">
+                          <button
+                            onClick={() => toggleActive(u)} disabled={busyId === u.id}
+                            className={`text-xs font-semibold ${u.is_active ? 'text-risk-high hover:underline' : 'text-primary hover:underline'}`}
+                          >
+                            {u.is_active ? t('admin.deactivate') : t('admin.reactivate')}
+                          </button>
+                          <button
+                            onClick={() => handleResetPassword(u)} disabled={busyId === u.id}
+                            className="text-xs font-semibold text-primary hover:underline"
+                          >
+                            {t('admin.resetPassword')}
+                          </button>
+                        </div>
+                      )}
                     </td>
+
                   </motion.tr>
                 ))}
               </tbody>

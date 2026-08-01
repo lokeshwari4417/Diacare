@@ -42,6 +42,8 @@ export const api = {
   // Auth
   register: (payload) => request('/auth/register', { method: 'POST', body: payload, auth: false }),
   login: (payload) => request('/auth/login', { method: 'POST', body: payload, auth: false }),
+  verifyOtp: (payload) => request('/auth/verify-otp', { method: 'POST', body: payload, auth: false }),
+  resendOtp: (payload) => request('/auth/resend-otp', { method: 'POST', body: payload, auth: false }),
   logout: () => request('/auth/logout', { method: 'POST' }),
   forgotPassword: (email) => request('/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),
   resetPassword: (payload) => request('/auth/reset-password', { method: 'POST', body: payload, auth: false }),
@@ -56,8 +58,11 @@ export const api = {
   createUser: (payload) => request('/users', { method: 'POST', body: payload }),
   deactivateUser: (id) => request(`/users/${id}/deactivate`, { method: 'PATCH' }),
   reactivateUser: (id) => request(`/users/${id}/reactivate`, { method: 'PATCH' }),
+  approveUser: (id) => request(`/users/${id}/approve`, { method: 'POST' }),
+  rejectUser: (id) => request(`/users/${id}/reject`, { method: 'POST' }),
   resetUserPassword: (id) => request(`/users/${id}/reset`, { method: 'POST' }),
   adminStats: () => request('/admin/stats'),
+
 
   // Prediction
   predict: (payload) => request('/predict', { method: 'POST', body: payload }),

@@ -15,6 +15,8 @@ class UserRegister(BaseModel):
     mobile: Optional[str] = None
     password: str = Field(min_length=6)
     role: Literal["patient", "doctor", "ngo", "admin"]
+    information: Optional[str] = None
+
 
 
 class UserLogin(BaseModel):
@@ -45,9 +47,11 @@ class UserOut(BaseModel):
     role: str
     information: Optional[str] = None
     is_active: bool
+    status: str
 
     class Config:
         from_attributes = True
+
 
 
 class UserUpdate(BaseModel):

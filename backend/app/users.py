@@ -1,6 +1,7 @@
 """
 Profile + Admin user-management routes (Section 3.4 / shared Profile section).
 """
+import os
 import uuid
 from typing import List
 
@@ -11,8 +12,11 @@ from . import models, schemas
 from .database import get_db
 from .auth import get_current_user, require_roles
 from .security import hash_password
+from .mail_service import send_email
+from .email_templates import account_approved_template
 
 router = APIRouter(tags=["users"])
+
 
 
 @router.get("/users/me", response_model=schemas.UserOut)
@@ -123,3 +127,52 @@ def admin_stats(
         total_screenings=len(reports),
         risk_band_distribution=distribution,
     )
+
+
+@router.post("/users/{user_id}/approve", response_model=schemas.UserOut)
+def approve_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(require_roles("admin")),
+):
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.status != "pending":
+        raise HTTPException(status_code=400, detail="User is not pending approval")
+        
+    target.status = "active"
+    target.is_active = True
+    db.commit()
+    db.refresh(target)
+    
+    frontend_url = os.getenv("DIACARE_FRONTEND_URL", "https://diacare-frontend.onrender.com")
+    login_link = f"{frontend_url}/login"
+    
+    try:
+        subject, html, text = account_approved_template(target.name, login_link)
+        send_email(target.email, subject, html, text)
+    except Exception as e:
+        print(f"Failed to send account approval email: {e}")
+        
+    return target
+
+
+@router.post("/users/{user_id}/reject", response_model=schemas.UserOut)
+def reject_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(require_roles("admin")),
+):
+    target = db.query(models.User).filter(models.User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.status != "pending":
+        raise HTTPException(status_code=400, detail="User is not pending approval")
+        
+    target.status = "rejected"
+    target.is_active = False
+    db.commit()
+    db.refresh(target)
+    return target
+

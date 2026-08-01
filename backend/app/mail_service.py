@@ -3,12 +3,14 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-SMTP_HOST = os.getenv("DIACARE_SMTP_HOST")
-SMTP_PORT = int(os.getenv("DIACARE_SMTP_PORT", 587))
-SMTP_USER = os.getenv("DIACARE_SMTP_USER")
-SMTP_PASSWORD = os.getenv("DIACARE_SMTP_PASSWORD")
-FROM_EMAIL = os.getenv("DIACARE_SMTP_FROM_EMAIL", "no-reply@diacare.demo")
-FROM_NAME = os.getenv("DIACARE_SMTP_FROM_NAME", "DiaCare")
+SMTP_HOST = os.getenv("DIACARE_SMTP_HOST") or os.getenv("SMTP_HOST")
+SMTP_PORT_RAW = os.getenv("DIACARE_SMTP_PORT") or os.getenv("SMTP_PORT")
+SMTP_PORT = int(SMTP_PORT_RAW) if SMTP_PORT_RAW else 587
+SMTP_USER = os.getenv("DIACARE_SMTP_USER") or os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("DIACARE_SMTP_PASSWORD") or os.getenv("SMTP_PASSWORD")
+FROM_EMAIL = os.getenv("DIACARE_SMTP_FROM_EMAIL") or os.getenv("SMTP_FROM") or "no-reply@diacare.demo"
+FROM_NAME = os.getenv("DIACARE_SMTP_FROM_NAME") or "DiaCare"
+
 
 
 def send_email(to_email: str, subject: str, html_body: str, text_body: str = None):

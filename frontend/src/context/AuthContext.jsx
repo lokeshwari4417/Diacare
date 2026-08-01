@@ -30,6 +30,16 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const data = await api.login({ email, password })
+    if (data.requires_otp) {
+      return data
+    }
+    localStorage.setItem('diacare_token', data.access_token)
+    setUser(data.user)
+    return data.user
+  }
+
+  const verifyOtpLogin = async (email, otp_code) => {
+    const data = await api.verifyOtp({ email, otp_code })
     localStorage.setItem('diacare_token', data.access_token)
     setUser(data.user)
     return data.user
@@ -37,6 +47,9 @@ export function AuthProvider({ children }) {
 
   const register = async (payload) => {
     const data = await api.register(payload)
+    if (data.status === 'pending') {
+      return data
+    }
     localStorage.setItem('diacare_token', data.access_token)
     setUser(data.user)
     return data.user
@@ -47,6 +60,7 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
+
   const refreshUser = async () => {
     const me = await api.me()
     setUser(me)
@@ -54,10 +68,11 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser, verifyOtpLogin }}>
       {children}
     </AuthContext.Provider>
   )
+
 }
 
 export function useAuth() {
