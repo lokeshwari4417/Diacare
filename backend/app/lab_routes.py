@@ -22,8 +22,12 @@ from . import models
 from .lab_reference import LAB_TEST_REFERENCE
 from .lab_engine import interpret_result, evaluate_risk_flags, generate_recommendations
 from .lab_ocr import extract_lab_data_from_file, match_test_name
+from .lab_trends import (
+    get_patient_lab_summary, get_test_trend, get_risk_flag_history, get_patient_reports_list
+)
 
 router = APIRouter(prefix="/v1", tags=["lab-reports"])
+
 
 
 class SingleTestInput(BaseModel):
@@ -355,3 +359,62 @@ def get_lab_report(
         "risk_flags": risk_flags_out,
         "recommendations": recommendations_out,
     }
+
+
+# ---------- Phase 3: Patient Lab Trends & History Endpoints ----------
+
+@router.get("/patients/{patient_id}/lab-summary")
+def get_patient_lab_summary_endpoint(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Returns latest value, status, and trend direction per test across all patient reports.
+    """
+    summary = get_patient_lab_summary(db, patient_id)
+    return {"patient_id": patient_id, "summary": summary}
+
+
+@router.get("/patients/{patient_id}/lab-trend/{test_name}")
+def get_patient_test_trend_endpoint(
+    patient_id: str,
+    test_name: str,
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Returns historical time series points for a specific normalized test name.
+    """
+    points = get_test_trend(db, patient_id, test_name, limit=limit)
+    return {"patient_id": patient_id, "test_name": test_name, "points": points}
+
+
+@router.get("/patients/{patient_id}/risk-flag-history")
+def get_patient_risk_flag_history_endpoint(
+    patient_id: str,
+    condition: Optional[str] = None,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Returns chronological timeline of all risk flags raised for the patient.
+    """
+    history = get_risk_flag_history(db, patient_id, condition_name=condition)
+    return {"patient_id": patient_id, "risk_flags": history}
+
+
+@router.get("/patients/{patient_id}/reports")
+def get_patient_reports_endpoint(
+    patient_id: str,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Returns paginated list of all past lab reports for the patient.
+    """
+    return get_patient_reports_list(db, patient_id, skip=skip, limit=limit)
+
