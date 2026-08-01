@@ -12,7 +12,29 @@ from .users import router as users_router
 from .patients import router as patients_router
 from .misc import router as misc_router
 
+from sqlalchemy import text
+
 Base.metadata.create_all(bind=engine)
+
+# Safe auto-migration for newly added User model columns
+with engine.begin() as conn:
+    is_postgres = "postgresql" in engine.dialect.name
+    columns_to_add = [
+        ("status", "ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'active'" if is_postgres else "ALTER TABLE users ADD COLUMN status VARCHAR(50) DEFAULT 'active'"),
+        ("otp_code", "ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_code VARCHAR(20)" if is_postgres else "ALTER TABLE users ADD COLUMN otp_code VARCHAR(20)"),
+        ("otp_expiry", "ALTER TABLE users ADD COLUMN IF NOT EXISTS otp_expiry TIMESTAMP" if is_postgres else "ALTER TABLE users ADD COLUMN otp_expiry TIMESTAMP"),
+        ("information", "ALTER TABLE users ADD COLUMN IF NOT EXISTS information TEXT" if is_postgres else "ALTER TABLE users ADD COLUMN information TEXT"),
+    ]
+    for col_name, stmt in columns_to_add:
+        try:
+            conn.execute(text(stmt))
+        except Exception:
+            pass
+    try:
+        conn.execute(text("UPDATE users SET status = 'active' WHERE status IS NULL"))
+    except Exception:
+        pass
+
 
 app = FastAPI(
     title="DiaCare API",
