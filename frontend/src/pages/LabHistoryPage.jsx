@@ -395,8 +395,11 @@ export default function LabHistoryPage() {
             ))}
           </div>
         </div>
+      )}
+
       {/* 6. Phase 9: Security & Data Access Audit Trail */}
       <div className="glass-card space-y-3">
+
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-display font-bold text-ink flex items-center gap-2">
