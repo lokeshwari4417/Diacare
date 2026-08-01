@@ -138,6 +138,12 @@ class ChatRequest(BaseModel):
     message: str
     mode: Literal["patient", "clinician"] = "patient"
     context_report_id: Optional[str] = None
+    risk_score: Optional[float] = None
+    risk_band: Optional[str] = None
+    top_factors: Optional[List[str]] = None
+    report_data: Optional[dict] = None
+    language: Optional[str] = None
+
 
 
 class ChatResponse(BaseModel):

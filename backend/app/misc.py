@@ -21,10 +21,33 @@ def health():
 
 
 @router.post("/chat", response_model=schemas.ChatResponse)
-def chat(payload: schemas.ChatRequest, user: models.User = Depends(get_current_user)):
+def chat(payload: schemas.ChatRequest, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     mode = "clinician" if user.role.value in ("doctor", "ngo") else "patient"
-    reply = chat_service.respond(payload.message, mode=mode, context_report_id=payload.context_report_id)
+
+    risk_band = payload.risk_band or "Unknown"
+    risk_score = f"{payload.risk_score * 100:.1f}%" if payload.risk_score is not None else "N/A"
+    top_factors = ", ".join(payload.top_factors) if payload.top_factors else "N/A"
+    report_summary = str(payload.report_data) if payload.report_data else "N/A"
+
+    if payload.context_report_id:
+        report = db.query(models.Report).filter(models.Report.id == payload.context_report_id).first()
+        if report:
+            risk_band = report.risk_band
+            risk_score = f"{report.probability * 100:.1f}%"
+            report_summary = f"Glucose: {report.glucose}, BMI: {report.bmi}, Age: {report.age}, Blood Pressure: {report.blood_pressure}"
+
+    reply = chat_service.respond(
+        message=payload.message,
+        mode=mode,
+        context_report_id=payload.context_report_id,
+        risk_band=risk_band,
+        risk_score=risk_score,
+        top_factors=top_factors,
+        report_summary=report_summary,
+        language=payload.language or "English",
+    )
     return schemas.ChatResponse(reply=reply)
+
 
 
 @router.get("/reports/{report_id}/pdf")

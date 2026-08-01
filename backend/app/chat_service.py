@@ -1,20 +1,17 @@
 """
-============================================================
- AI INTEGRATION POINT #3 -- Chatbot
-============================================================
-This file is intentionally a MOCK. A teammate will replace `respond()`
-with a fine-tuned or RAG-backed model. The seam is this single function --
-nothing else in the app needs to change when it's swapped in.
-
-Scope (Section 3.1 / 9, non-negotiable even after the swap-in):
-    (a) how to use the site
-    (b) general diabetes education
-    (c) explaining the user's own results in plain language
-The bot must never output the words "diagnosis", "diagnose", or claim
-"you have diabetes" -- always "risk", "estimate", "screening", "likelihood".
+AI Integration Point -- DiaCare Diabetes Risk & Lifestyle Chatbot.
+Uses Google Gemini API ('gemini-2.0-flash') to provide personalized, multilingual,
+supportive lifestyle guidance based on the patient's screening results.
 """
+import os
 import re
-from typing import Optional
+from typing import Optional, List
+
+try:
+    import google.generativeai as genai
+    HAS_GENAI = True
+except ImportError:
+    HAS_GENAI = False
 
 _BANNED_PATTERNS = [
     r"\byou have diabetes\b",
@@ -23,94 +20,122 @@ _BANNED_PATTERNS = [
 
 _FAQ = [
     (
-        ["upload", "scan", "photo", "picture of my report"],
-        "To scan a report: go to your dashboard, choose 'Scan a Report', and "
-        "upload a clear photo of your lab printout. We'll extract the values "
-        "automatically, but you'll always get a chance to review and correct "
-        "them before anything is submitted.",
+        ["food", "diet", "eat", "nutrition", "sugar", "carbs"],
+        "A healthy diet for diabetes risk management emphasizes whole foods, vegetables, high-fiber legumes, and lean proteins while limiting sugary drinks and refined carbs. For personalized meal planning, please consult a healthcare provider.",
     ),
     (
-        ["how", "use", "navigate", "get started", "start"],
-        "Getting started is simple: fill in the 8 screening fields (or scan a "
-        "report), review the values, and submit. You'll get an instant risk "
-        "estimate with an explanation of what's driving it, plus a downloadable "
-        "PDF summary you can share with a doctor.",
+        ["exercise", "activity", "walk", "workout"],
+        "Aim for at least 150 minutes of moderate physical activity (like brisk walking) each week. Always check with your doctor before starting a new exercise regimen.",
     ),
     (
-        ["pdf", "download", "report file"],
-        "You can download a one-page PDF summary from your results screen -- "
-        "look for the 'Download PDF' button. It includes your inputs, the risk "
-        "estimate, top contributing factors, and reference ranges.",
-    ),
-    (
-        ["what is diabetes", "diabetes education", "what causes diabetes"],
-        "Diabetes is a group of conditions affecting how your body turns food "
-        "into energy, generally linked to how well your body manages blood "
-        "sugar (glucose). Type 2, the most common form, is influenced by a mix "
-        "of genetics, weight, activity level, and age. A qualified healthcare "
-        "professional is the right person to explain how this applies to you.",
-    ),
-    (
-        ["glucose", "blood sugar"],
-        "Glucose is the sugar circulating in your blood, and it's one of the "
-        "strongest signals used in this screening tool. Higher readings, "
-        "especially after fasting or a glucose tolerance test, are associated "
-        "with higher estimated risk.",
-    ),
-    (
-        ["bmi", "body mass index", "weight"],
-        "BMI is a simple ratio of weight to height, used here as one of "
-        "several inputs into your risk estimate. It's a general population "
-        "measure and doesn't capture things like muscle mass, so it's just "
-        "one piece of the picture.",
-    ),
-    (
-        ["what is my risk", "explain my result", "why is my risk", "my report", "my result"],
-        "I can walk you through what's driving your estimate -- the "
-        "Explainability panel on your results screen lists the top factors "
-        "and whether each one is pushing your estimate up or down, in plain "
-        "language.",
-    ),
-    (
-        ["accurate", "trust", "reliable"],
-        "This tool gives a preliminary, statistics-based risk estimate -- it's "
-        "meant as a first-line self-screening aid, not a clinical-grade test. "
-        "Please treat a Moderate or High result as a prompt to talk to a "
-        "qualified healthcare professional, not as a final answer.",
+        ["risk", "score", "result", "report"],
+        "Your screening score estimate is based on statistical risk factors like glucose, BMI, and age. Remember, this tool provides a preliminary risk estimate—not a medical diagnosis.",
     ),
 ]
 
 _DEFAULT_REPLY = (
-    "I can help with using this site, general diabetes education, or "
-    "explaining your own screening results in plain language. Could you "
-    "tell me a bit more about what you'd like to know?"
+    "I am your DiaCare Lifestyle Guide! I can offer practical advice on nutrition, exercise, "
+    "and healthy habits based on your screening results. Please note that this is general guidance, "
+    "not a medical diagnosis—always consult a doctor for personalized medical care."
 )
 
-_CLINICIAN_EXTRA = (
-    " As a clinician, you can also expand 'Technical details' on a report "
-    "to see the raw contribution values and model confidence."
-)
+SYSTEM_PROMPT = """
+You are the DiaCare AI Lifestyle Assistant, a warm, supportive, and empathetic lifestyle guide for diabetes risk awareness and healthy living.
+
+PATIENT SCREENING RESULT CONTEXT:
+- Risk Band: {risk_band}
+- Estimated Risk Score: {risk_score}
+- Key Contributing Risk Factors: {top_factors}
+- Clinical Data Summary: {report_summary}
+- Target Language Hint: {language_hint}
+
+STRICT ROLE & GUIDELINES:
+1. ACT AS A SUPPORTIVE LIFESTYLE GUIDE, NOT A DOCTOR. Do NOT make definitive diagnostic claims or use words stating "you have diabetes". Always refer to "estimated risk" or "screening result".
+2. NO MEDICATIONS: Do NOT prescribe specific medications, drug dosages, or medical treatment plans.
+3. TAILORED ADVICE: Provide practical, general guidance on:
+   - Diet & Nutrition: Foods to eat (high-fiber, whole grains, non-starchy vegetables) and foods to avoid/limit (sugary beverages, refined sugars).
+   - Exercise & Activity: Safe physical activities to consider (brisk walking, swimming, light cardio).
+   - Lifestyle Habits: Hydration, sleep, and weight management suited to their risk level ({risk_band}).
+4. MANDATORY DISCLAIMER: ALWAYS include a brief, gentle reminder that your guidance is for educational and lifestyle purposes only, not a medical diagnosis or treatment plan, and that they should consult a doctor for personalized advice (especially important for Moderate or High risk).
+5. MULTILINGUAL RESPONSE: Automatically detect the language of the user's message (or follow the language hint '{language_hint}') and respond in that EXACT SAME LANGUAGE.
+6. TONE: Warm, encouraging, clear, and easy to understand without heavy medical jargon.
+
+User Question: {user_message}
+"""
 
 
 def _sanitize(text: str) -> str:
-    """Guarantee the non-negotiable copy rule even if a future model swap
-    momentarily forgets it."""
+    """Ensure non-negotiable copy safety rules."""
     sanitized = text
     for pattern in _BANNED_PATTERNS:
         sanitized = re.sub(pattern, "risk estimate", sanitized, flags=re.IGNORECASE)
     return sanitized
 
 
-def respond(message: str, mode: str = "patient", context_report_id: Optional[str] = None) -> str:
-    """MOCK implementation: simple keyword-matched templated responses."""
+def respond_with_gemini(
+    message: str,
+    risk_band: str = "Unknown",
+    risk_score: str = "N/A",
+    top_factors: str = "N/A",
+    report_summary: str = "N/A",
+    language_hint: str = "English",
+) -> Optional[str]:
+    """Sends user message and patient context to Gemini API (gemini-2.0-flash)."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not HAS_GENAI or not api_key:
+        print("GEMINI_API_KEY not set or google.generativeai missing. Falling back to local responder.")
+        return None
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        prompt = SYSTEM_PROMPT.format(
+            risk_band=risk_band,
+            risk_score=risk_score,
+            top_factors=top_factors,
+            report_summary=report_summary,
+            language_hint=language_hint or "English",
+            user_message=message,
+        )
+
+        response = model.generate_content(prompt)
+        if response and response.text:
+            return _sanitize(response.text.strip())
+    except Exception as e:
+        print(f"Gemini API Exception: {e}")
+        return None
+
+
+def respond(
+    message: str,
+    mode: str = "patient",
+    context_report_id: Optional[str] = None,
+    risk_band: str = "Unknown",
+    risk_score: str = "N/A",
+    top_factors: str = "N/A",
+    report_summary: str = "N/A",
+    language: str = "English",
+) -> str:
+    """Primary chat responder: tries Gemini API first, falls back to structured FAQ."""
+    # Attempt Gemini API response first
+    gemini_reply = respond_with_gemini(
+        message=message,
+        risk_band=risk_band,
+        risk_score=risk_score,
+        top_factors=top_factors,
+        report_summary=report_summary,
+        language_hint=language,
+    )
+    if gemini_reply:
+        return gemini_reply
+
+    # Fallback keyword responder
     lowered = message.lower()
     reply = _DEFAULT_REPLY
     for keywords, canned in _FAQ:
         if any(kw in lowered for kw in keywords):
             reply = canned
             break
-
-    if mode == "clinician":
-        reply += _CLINICIAN_EXTRA
 
     return _sanitize(reply)
