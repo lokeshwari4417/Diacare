@@ -105,16 +105,7 @@ export default function LoginPage() {
             <Link to="/register" className="text-primary font-semibold hover:underline">{t('nav.register')}</Link>
           </p>
 
-          <div className="mt-6 pt-5 border-t border-primary/5">
-            <p className="text-[11px] text-center text-muted mb-2 font-medium">Demo accounts (after running seed_admin.py)</p>
-            <div className="grid grid-cols-2 gap-1.5 text-[11px] text-muted text-center font-mono">
-              <span>patient@diacare.demo</span><span>patient123</span>
-              <span>doctor@diacare.demo</span><span>doctor123</span>
-              <span>ngo@diacare.demo</span><span>ngo12345</span>
-              <span className="col-span-2 pt-1 font-semibold text-primary">Admin Account:</span>
-              <span>lokeshwaritharunkumar@gmail.com</span><span>sandhiya@12345</span>
-            </div>
-          </div>
+
 
         </>
       ) : (
