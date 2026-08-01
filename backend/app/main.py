@@ -17,8 +17,10 @@ from sqlalchemy import text
 from .lab_routes import router as lab_router
 from .lab_doctor_routes import router as doctor_portal_router
 from .lab_notification_routes import router as notification_router
+from .lab_analytics_routes import router as analytics_router
 
 Base.metadata.create_all(bind=engine)
+
 
 
 
@@ -68,6 +70,8 @@ app.include_router(misc_router)
 app.include_router(lab_router)
 app.include_router(doctor_portal_router)
 app.include_router(notification_router)
+app.include_router(analytics_router)
+
 
 
 
