@@ -15,8 +15,10 @@ from .misc import router as misc_router
 from sqlalchemy import text
 
 from .lab_routes import router as lab_router
+from .lab_doctor_routes import router as doctor_portal_router
 
 Base.metadata.create_all(bind=engine)
+
 
 
 # Safe auto-migration for newly added User model columns
@@ -62,6 +64,8 @@ app.include_router(users_router)
 app.include_router(patients_router)
 app.include_router(misc_router)
 app.include_router(lab_router)
+app.include_router(doctor_portal_router)
+
 
 
 

@@ -212,4 +212,47 @@ class PatientLabProfile(Base):
     patient = relationship("User", foreign_keys=[patient_id])
 
 
+# ---------- Phase 6: Doctor Portal & Link Accounts ----------
+
+class DoctorAccount(Base):
+    __tablename__ = "doctors"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    license_number = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DoctorPatientLink(Base):
+    __tablename__ = "doctor_patient_links"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    doctor_id = Column(String, ForeignKey("doctors.id"), nullable=True)
+    doctor_email = Column(String, index=True, nullable=False)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="pending", nullable=False)  # "pending" | "accepted" | "declined" | "revoked"
+    invited_at = Column(DateTime, default=datetime.utcnow)
+    accepted_at = Column(DateTime, nullable=True)
+
+    doctor = relationship("DoctorAccount", foreign_keys=[doctor_id])
+    patient = relationship("User", foreign_keys=[patient_id])
+
+
+class DoctorNote(Base):
+    __tablename__ = "doctor_notes"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    doctor_id = Column(String, ForeignKey("doctors.id"), nullable=False)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=False)
+    report_id = Column(String, ForeignKey("lab_reports.id"), nullable=True)
+    note_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    doctor = relationship("DoctorAccount", foreign_keys=[doctor_id])
+    patient = relationship("User", foreign_keys=[patient_id])
+
+
+
 
