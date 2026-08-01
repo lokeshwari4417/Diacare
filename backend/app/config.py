@@ -11,7 +11,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("DIACARE_TOKEN_EXPIRE_MINUTES", "480
 
 DATABASE_URL = os.getenv("DIACARE_DATABASE_URL", "sqlite:///./diacare.db")
 
-CORS_ORIGINS = os.getenv("DIACARE_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+CORS_ORIGINS = os.getenv("DIACARE_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000,https://diacare-frontend.onrender.com,*").split(",")
+
 
 # Risk band thresholds -- configurable, not hardcoded (Section 5.1 of spec)
 RISK_THRESHOLDS = {
