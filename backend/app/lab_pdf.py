@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from . import models
 from .lab_trends import get_patient_lab_summary, get_risk_flag_history
+from .lab_i18n import get_translation, get_translated_test_name
+
 
 DISCLAIMER_TEXT = (
     "DISCLAIMER: This AI system is designed to assist in interpreting laboratory reports and providing "
@@ -25,8 +27,9 @@ DISCLAIMER_TEXT = (
 )
 
 
-def generate_report_pdf(db: Session, report_id: str) -> BytesIO:
-    """Generates a clean PDF document for a single lab report."""
+def generate_report_pdf(db: Session, report_id: str, lang: str = "en") -> BytesIO:
+    """Generates a clean PDF document for a single lab report with optional language translation ('en' | 'ta')."""
+
     report = db.query(models.LabReport).filter(models.LabReport.id == report_id).first()
     if not report:
         raise ValueError("Report not found")
@@ -187,8 +190,9 @@ def generate_report_pdf(db: Session, report_id: str) -> BytesIO:
     return buffer
 
 
-def generate_summary_pdf(db: Session, patient_id: str) -> BytesIO:
-    """Generates a multi-report summary PDF for a patient covering trends and latest status."""
+def generate_summary_pdf(db: Session, patient_id: str, lang: str = "en") -> BytesIO:
+    """Generates a multi-report summary PDF for a patient covering trends and latest status with optional language ('en' | 'ta')."""
+
     patient = db.query(models.User).filter(models.User.id == patient_id).first()
     patient_name = patient.name if patient else patient_id
 
