@@ -12,7 +12,7 @@ import uuid
 import shutil
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -25,8 +25,13 @@ from .lab_ocr import extract_lab_data_from_file, match_test_name
 from .lab_trends import (
     get_patient_lab_summary, get_test_trend, get_risk_flag_history, get_patient_reports_list
 )
+from .lab_pdf import generate_report_pdf, generate_summary_pdf
+from .lab_shares import (
+    create_share_link, revoke_share_link, get_active_share_for_resource, get_public_shared_content
+)
 
 router = APIRouter(prefix="/v1", tags=["lab-reports"])
+
 
 
 
@@ -417,4 +422,103 @@ def get_patient_reports_endpoint(
     Returns paginated list of all past lab reports for the patient.
     """
     return get_patient_reports_list(db, patient_id, skip=skip, limit=limit)
+
+
+# ---------- Phase 4: PDF Export & Doctor Sharing Endpoints ----------
+
+@router.get("/reports/{report_id}/pdf")
+def download_single_report_pdf(
+    report_id: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Streams printable PDF for a single lab report.
+    """
+    pdf_buffer = generate_report_pdf(db, report_id)
+    headers = {
+        "Content-Disposition": f"attachment; filename=diacare_lab_report_{report_id[:8]}.pdf"
+    }
+    return Response(content=pdf_buffer.getvalue(), media_type="application/pdf", headers=headers)
+
+
+@router.get("/patients/{patient_id}/summary-pdf")
+def download_patient_summary_pdf(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Streams multi-report summary PDF for a patient.
+    """
+    pdf_buffer = generate_summary_pdf(db, patient_id)
+    headers = {
+        "Content-Disposition": f"attachment; filename=diacare_patient_summary_{patient_id[:8]}.pdf"
+    }
+    return Response(content=pdf_buffer.getvalue(), media_type="application/pdf", headers=headers)
+
+
+@router.post("/reports/{report_id}/share")
+def create_single_report_share_endpoint(
+    report_id: str,
+    expires_in_days: int = 7,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Creates a doctor share link for a specific report.
+    """
+    report = db.query(models.LabReport).filter(models.LabReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.patient_id != user.id and user.role.value not in ("doctor", "admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    existing = get_active_share_for_resource(db, patient_id=report.patient_id, report_id=report_id)
+    if existing:
+        return existing
+
+    return create_share_link(db, patient_id=report.patient_id, report_id=report_id, expires_in_days=expires_in_days)
+
+
+@router.post("/patients/{patient_id}/share-summary")
+def create_patient_summary_share_endpoint(
+    patient_id: str,
+    expires_in_days: int = 7,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Creates a doctor share link for the patient's overall lab summary.
+    """
+    existing = get_active_share_for_resource(db, patient_id=patient_id, report_id=None)
+    if existing:
+        return existing
+
+    return create_share_link(db, patient_id=patient_id, report_id=None, expires_in_days=expires_in_days)
+
+
+@router.post("/shares/{token}/revoke")
+def revoke_share_endpoint(
+    token: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Revokes an active share link.
+    """
+    return revoke_share_link(db, token=token, user_id=user.id)
+
+
+@router.get("/shared/{token}")
+def get_public_shared_endpoint(
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """
+    PUBLIC endpoint (no authentication required).
+    Returns read-only report or summary content if token is active and unexpired.
+    """
+    return get_public_shared_content(db, token)
+
 

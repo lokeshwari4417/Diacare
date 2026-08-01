@@ -183,3 +183,19 @@ class LabRecommendation(Base):
 
     report = relationship("LabReport", back_populates="recommendations")
 
+
+class LabReportShare(Base):
+    __tablename__ = "report_shares"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    report_id = Column(String, ForeignKey("lab_reports.id"), nullable=True)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=False)
+    share_token = Column(String, unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    revoked = Column(Boolean, default=False)
+
+    report = relationship("LabReport", foreign_keys=[report_id])
+    patient = relationship("User", foreign_keys=[patient_id])
+
+
