@@ -12,8 +12,9 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Enum, Text
+    Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Enum, Text, JSON
 )
+
 from sqlalchemy.orm import relationship
 
 from .database import Base
@@ -106,3 +107,76 @@ class Appointment(Base):
 
     patient = relationship("User", foreign_keys=[patient_id])
     doctor = relationship("User", foreign_keys=[doctor_id])
+
+
+# ---------- Lab Report Analysis (Phase 1) ----------
+
+class LabReport(Base):
+    __tablename__ = "lab_reports"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    patient_id = Column(String, ForeignKey("users.id"), nullable=False)
+    lab_name = Column(String, nullable=True)
+    report_date = Column(String, nullable=True)
+    status = Column(String, default="completed")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+    test_results = relationship("LabTestResult", back_populates="report", cascade="all, delete-orphan")
+    risk_flags = relationship("LabRiskFlag", back_populates="report", cascade="all, delete-orphan")
+    recommendations = relationship("LabRecommendation", back_populates="report", cascade="all, delete-orphan")
+
+
+class LabTestResult(Base):
+    __tablename__ = "test_results"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    report_id = Column(String, ForeignKey("lab_reports.id"), nullable=False)
+    test_name_normalized = Column(String, nullable=False)
+    value_numeric = Column(Float, nullable=True)
+    value_text = Column(String, nullable=True)
+    unit = Column(String, nullable=False)
+    ref_low = Column(Float, nullable=True)
+    ref_high = Column(Float, nullable=True)
+    status_enum = Column(String, nullable=False)  # 'low' | 'normal' | 'borderline' | 'high'
+    category = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    report = relationship("LabReport", back_populates="test_results")
+    interpretation = relationship("LabInterpretation", back_populates="test_result", uselist=False, cascade="all, delete-orphan")
+
+
+class LabInterpretation(Base):
+    __tablename__ = "interpretations"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    test_result_id = Column(String, ForeignKey("test_results.id"), nullable=False)
+    plain_language_explanation = Column(Text, nullable=False)
+    possible_causes = Column(JSON, nullable=True)
+
+    test_result = relationship("LabTestResult", back_populates="interpretation")
+
+
+class LabRiskFlag(Base):
+    __tablename__ = "risk_flags"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    report_id = Column(String, ForeignKey("lab_reports.id"), nullable=False)
+    condition_name = Column(String, nullable=False)
+    likelihood_enum = Column(String, nullable=False)  # 'low' | 'moderate' | 'high'
+    contributing_test_result_ids = Column(JSON, nullable=True)
+    rationale_text = Column(Text, nullable=False)
+
+    report = relationship("LabReport", back_populates="risk_flags")
+
+
+class LabRecommendation(Base):
+    __tablename__ = "recommendations"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    report_id = Column(String, ForeignKey("lab_reports.id"), nullable=False)
+    category = Column(String, nullable=False)  # diet/exercise/hydration/sleep/follow-up-tests/doctor-urgency
+    text = Column(Text, nullable=False)
+
+    report = relationship("LabReport", back_populates="recommendations")
+

@@ -17,6 +17,7 @@ import CreatePatientPage from './pages/CreatePatientPage'
 import ClinicianScreeningPage from './pages/ClinicianScreeningPage'
 import AdminPage from './pages/AdminPage'
 import AboutModelPage from './pages/AboutModelPage'
+import NewLabReportPage from './pages/NewLabReportPage'
 
 function HomeRedirect() {
   const { user, loading } = useAuth()
@@ -38,6 +39,9 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/profile" element={<Profile />} />
               <Route path="/about-model" element={<AboutModelPage />} />
+              <Route path="/lab/new" element={<NewLabReportPage />} />
+              <Route path="/lab/report/:reportId" element={<NewLabReportPage />} />
+
 
               <Route element={<ProtectedRoute allowedRoles={['patient']} />}>
                 <Route path="/patient" element={<PatientScreeningPage />} />

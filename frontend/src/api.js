@@ -85,10 +85,16 @@ export const api = {
   updateReportValues: (id, payload) => request(`/reports/${id}`, { method: 'PATCH', body: payload }),
   downloadReportPdf: (id) => request(`/reports/${id}/pdf`),
 
+  // Lab Reports (Phase 1)
+  getLabReference: () => request('/v1/lab-tests/reference'),
+  createLabReport: (payload) => request('/v1/reports/manual', { method: 'POST', body: payload }),
+  getLabReport: (id) => request(`/v1/reports/${id}`),
+
   // Chat
   chat: (payload) => request('/chat', { method: 'POST', body: payload }),
 
   health: () => request('/health', { auth: false }),
 }
+
 
 export { getToken, BASE_URL }

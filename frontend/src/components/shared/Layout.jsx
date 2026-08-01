@@ -8,17 +8,21 @@ const NAV_BY_ROLE = {
   patient: [
     { to: '/patient', labelKey: 'nav.newScreening', end: true },
     { to: '/patient/history', labelKey: 'nav.previousScans' },
+    { to: '/lab/new', label: 'Lab Analysis' },
   ],
   doctor: [
     { to: '/doctor', labelKey: 'nav.patients', end: true },
     { to: '/doctor/new-patient', labelKey: 'nav.createProfile' },
+    { to: '/lab/new', label: 'Lab Analysis' },
   ],
   ngo: [
     { to: '/ngo', labelKey: 'nav.patients', end: true },
     { to: '/ngo/new-patient', labelKey: 'nav.createProfile' },
+    { to: '/lab/new', label: 'Lab Analysis' },
   ],
   admin: [
     { to: '/admin', labelKey: 'nav.userManagement', end: true },
+    { to: '/lab/new', label: 'Lab Analysis' },
   ],
 }
 
@@ -49,10 +53,11 @@ export default function Layout() {
                   }`
                 }
               >
-                {t(item.labelKey)}
+                {item.labelKey ? t(item.labelKey) : item.label}
               </NavLink>
             ))}
           </nav>
+
 
           <div className="flex items-center gap-1.5">
             <LanguageSwitcher />
