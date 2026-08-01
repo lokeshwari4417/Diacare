@@ -1,57 +1,56 @@
 """
-Lab Interpretation, Risk-Flag, and Recommendation Engine for Phase 1.
-Implements rule-based, deterministic analysis for lab results.
+Lab Interpretation, Risk-Flag, and Recommendation Engine for Phase 1-5.
+Supports demographic-aware (age, sex, pregnancy) reference range selection while remaining 100% backward compatible.
 """
-from typing import List, Dict, Any, Tuple
-from .lab_reference import find_test_reference, LAB_TEST_REFERENCE
+from typing import List, Dict, Any, Optional
+from .lab_reference import find_test_reference, get_test_reference_range
 
 
-def interpret_result(test_name: str, value: float, unit: str) -> Dict[str, Any]:
+def interpret_result(
+    test_name: str,
+    value: float,
+    unit: str,
+    age: Optional[int] = None,
+    sex: Optional[str] = None,
+    is_pregnant: Optional[bool] = None,
+) -> Dict[str, Any]:
     """
-    Computes status (low / normal / borderline / high) based on reference range,
-    where borderline is defined as within ~10% of a boundary.
+    Computes status (low / normal / borderline / high) based on reference range.
+    Accepts optional age, sex, and is_pregnant keyword arguments.
     """
-    ref = find_test_reference(test_name)
-    if not ref:
-        return {
-            "test_name_normalized": test_name.title(),
-            "status_enum": "normal",
-            "ref_low": None,
-            "ref_high": None,
-            "category": "General Screening",
-            "plain_language_explanation": f"{test_name} reading recorded as {value} {unit}.",
-            "possible_causes": ["Standard clinical variance"],
-        }
-
+    ref = get_test_reference_range(test_name, age=age, sex=sex, is_pregnant=is_pregnant)
+    
     ref_low = ref["ref_low"]
     ref_high = ref["ref_high"]
-    category = ref["category"]
-    canonical_name = ref["canonical_name"]
+    category = ref.get("category", "General")
+    canonical_name = ref.get("canonical_name", test_name.title())
+    is_adjusted = ref.get("is_demographic_adjusted", False)
+    variant_label = ref.get("variant_label", "General Range")
 
     span = ref_high - ref_low
     margin = span * 0.10 if span > 0 else 0.5
 
     status = "normal"
-    explanation = f"{canonical_name} is within the normal healthy reference range ({ref_low} - {ref_high} {unit})."
+    adj_note = f" (Adjusted for {variant_label})" if is_adjusted else ""
+    explanation = f"{canonical_name} is within the normal healthy reference range ({ref_low} - {ref_high} {unit}){adj_note}."
     possible_causes = ["Optimal balance and health"]
 
     if value < ref_low:
         status = "low"
-        explanation = f"{canonical_name} is below the lower reference threshold ({ref_low} {unit})."
+        explanation = f"{canonical_name} is below the lower reference threshold ({ref_low} {unit}){adj_note}."
         possible_causes = ref.get("causes_low", ["Individual physiological variance"])
     elif value > ref_high:
         status = "high"
-        explanation = f"{canonical_name} is above the upper reference threshold ({ref_high} {unit})."
+        explanation = f"{canonical_name} is above the upper reference threshold ({ref_high} {unit}){adj_note}."
         possible_causes = ref.get("causes_high", ["Individual physiological variance"])
     else:
-        # Check for borderline (near lower or upper bound)
         if (value - ref_low) <= margin:
             status = "borderline"
-            explanation = f"{canonical_name} is near the lower boundary of the reference range ({ref_low} {unit})."
+            explanation = f"{canonical_name} is near the lower boundary of the reference range ({ref_low} {unit}){adj_note}."
             possible_causes = ref.get("causes_low", ["Early physiological trend"])
         elif (ref_high - value) <= margin:
             status = "borderline"
-            explanation = f"{canonical_name} is near the upper boundary of the reference range ({ref_high} {unit})."
+            explanation = f"{canonical_name} is near the upper boundary of the reference range ({ref_high} {unit}){adj_note}."
             possible_causes = ref.get("causes_high", ["Early physiological trend"])
 
     return {
@@ -60,23 +59,22 @@ def interpret_result(test_name: str, value: float, unit: str) -> Dict[str, Any]:
         "ref_low": ref_low,
         "ref_high": ref_high,
         "category": category,
+        "is_demographic_adjusted": is_adjusted,
+        "variant_label": variant_label,
         "plain_language_explanation": explanation,
         "possible_causes": [f"Can include: {c}" for c in possible_causes],
     }
 
 
-def evaluate_risk_flags(test_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def evaluate_risk_flags(
+    test_results: List[Dict[str, Any]],
+    sex: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """
-    Tier 1 Rule-Based Risk Flag Evaluation:
-    - Diabetes (Glucose >= 126 or HbA1c >= 6.5)
-    - Prediabetes (Glucose 100-125 or HbA1c 5.7-6.4)
-    - Liver stress (ALT, AST, GGT all elevated)
-    - Cardiovascular risk (LDL high + HDL low)
-    - Anemia (Low Hemoglobin)
+    Tier 1 Rule-Based Risk Flag Evaluation with optional sex threshold adjustment.
     """
     results_map = {r["test_name_normalized"].lower(): r for r in test_results}
     
-    # Helper getters
     def get_result(key_substr):
         for k, v in results_map.items():
             if key_substr in k:
@@ -112,7 +110,6 @@ def evaluate_risk_flags(test_results: List[Dict[str, Any]]) -> List[Dict[str, An
             "rationale_text": "ADA clinical criteria: Fasting Glucose >= 126 mg/dL OR HbA1c >= 6.5%",
         })
     else:
-        # 2. Prediabetes Check (if diabetes check failed)
         is_prediabetes = False
         prediabetes_triggers = []
         if glucose_r and glucose_r.get("value_numeric") is not None and (100 <= glucose_r["value_numeric"] <= 125):
@@ -130,7 +127,7 @@ def evaluate_risk_flags(test_results: List[Dict[str, Any]]) -> List[Dict[str, An
                 "rationale_text": "ADA clinical criteria: Fasting Glucose 100-125 mg/dL OR HbA1c 5.7-6.4%",
             })
 
-    # 3. Liver Stress Check (ALT, AST, GGT all elevated)
+    # 2. Liver Stress Check
     alt_high = alt_r and alt_r.get("status_enum") in ("high", "borderline")
     ast_high = ast_r and ast_r.get("status_enum") in ("high", "borderline")
     ggt_high = ggt_r and ggt_r.get("status_enum") in ("high", "borderline")
@@ -145,7 +142,7 @@ def evaluate_risk_flags(test_results: List[Dict[str, Any]]) -> List[Dict[str, An
             "rationale_text": "Concomitant elevation in liver enzymes ALT, AST, and GGT",
         })
 
-    # 4. Cardiovascular Risk Check (LDL high + HDL low)
+    # 3. Cardiovascular Risk Check
     ldl_high = ldl_r and ldl_r.get("status_enum") in ("high", "borderline")
     hdl_low = hdl_r and hdl_r.get("status_enum") in ("low", "borderline")
 
@@ -157,27 +154,33 @@ def evaluate_risk_flags(test_results: List[Dict[str, Any]]) -> List[Dict[str, An
             "rationale_text": "AHA lipid criteria: Elevated LDL combined with reduced HDL",
         })
 
-    # 5. Anemia Check (Low Hemoglobin)
-    if hb_r and hb_r.get("status_enum") == "low":
-        flags.append({
-            "condition_name": "Pattern consistent with anemia",
-            "likelihood_enum": "moderate",
-            "contributing_test_result_ids": [hb_r["id"]],
-            "rationale_text": "WHO criteria: Hemoglobin below reference lower bound",
-        })
+    # 4. Anemia Check (Low Hemoglobin adjusted for sex)
+    if hb_r:
+        val = hb_r.get("value_numeric")
+        status = hb_r.get("status_enum")
+        if status == "low":
+            cutoff_text = "WHO criteria: Hemoglobin below lower reference bound"
+            if sex == "male":
+                cutoff_text = "WHO male criteria: Hemoglobin < 13.5 g/dL"
+            elif sex == "female":
+                cutoff_text = "WHO female criteria: Hemoglobin < 12.0 g/dL"
+            flags.append({
+                "condition_name": "Pattern consistent with anemia",
+                "likelihood_enum": "moderate",
+                "contributing_test_result_ids": [hb_r["id"]],
+                "rationale_text": cutoff_text,
+            })
 
     return flags
 
 
 def generate_recommendations(risk_flags: List[Dict[str, Any]], test_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Generates rule-based recommendations across categories:
-    diet, exercise, hydration, sleep, follow-up-tests, doctor-urgency.
+    Generates rule-based recommendations across categories.
     """
     recommendations = []
     flag_names = [f["condition_name"] for f in risk_flags]
 
-    # Baseline general healthy recommendation
     recommendations.append({
         "category": "hydration",
         "text": "Maintain optimal hydration by drinking 2 to 3 liters of water daily to support kidney filtration.",
@@ -227,7 +230,6 @@ def generate_recommendations(risk_flags: List[Dict[str, Any]], test_results: Lis
             "text": "Increase intake of iron-rich foods (leafy greens, legumes, lean meats) alongside Vitamin C.",
         })
 
-    # Doctor Urgency determination
     has_high = any(f["likelihood_enum"] == "high" for f in risk_flags)
     if has_high:
         recommendations.append({

@@ -199,3 +199,17 @@ class LabReportShare(Base):
     patient = relationship("User", foreign_keys=[patient_id])
 
 
+class PatientLabProfile(Base):
+    __tablename__ = "patient_lab_profiles"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    patient_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False)
+    age_years = Column(Integer, nullable=True)
+    sex = Column(String, nullable=True)  # "male" | "female" | "other"
+    is_pregnant = Column(Boolean, nullable=True, default=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    patient = relationship("User", foreign_keys=[patient_id])
+
+
+

@@ -48,6 +48,25 @@ class ManualReportCreate(BaseModel):
     results: List[SingleTestInput]
 
 
+class PatientProfileUpdate(BaseModel):
+    age_years: Optional[int] = None
+    sex: Optional[str] = None  # "male" | "female" | "other"
+    is_pregnant: Optional[bool] = False
+
+
+def get_patient_demographics(db: Session, patient_id: str) -> Dict[str, Any]:
+    """Retrieves demographic settings for demographic-aware reference range selection."""
+    profile = db.query(models.PatientLabProfile).filter(models.PatientLabProfile.patient_id == patient_id).first()
+    if profile:
+        return {
+            "age_years": profile.age_years,
+            "sex": profile.sex,
+            "is_pregnant": profile.is_pregnant,
+        }
+    return {"age_years": None, "sex": None, "is_pregnant": None}
+
+
+
 @router.get("/lab-tests/reference")
 def get_lab_reference():
     """Returns canonical reference range dictionary for frontend typeahead dropdown."""
@@ -71,6 +90,7 @@ def create_manual_lab_report(
     user: models.User = Depends(get_current_user),
 ):
     target_patient_id = payload.patient_id or user.id
+    demo = get_patient_demographics(db, target_patient_id)
     report_date_str = payload.report_date or datetime.utcnow().strftime("%Y-%m-%d")
     report = models.LabReport(
         id=str(uuid.uuid4()),
@@ -84,9 +104,12 @@ def create_manual_lab_report(
 
     processed_results = []
     
-    # 1. Process each test result & interpretation
+    # 1. Process each test result & interpretation with demographics
     for item in payload.results:
-        interp = interpret_result(item.test_name, item.value, item.unit)
+        interp = interpret_result(
+            item.test_name, item.value, item.unit,
+            age=demo["age_years"], sex=demo["sex"], is_pregnant=demo["is_pregnant"]
+        )
         test_res = models.LabTestResult(
             id=str(uuid.uuid4()),
             report_id=report.id,
@@ -119,8 +142,9 @@ def create_manual_lab_report(
             "category": interp["category"],
         })
 
-    # 2. Evaluate Tier 1 Risk Flags
-    risk_flags_eval = evaluate_risk_flags(processed_results)
+    # 2. Evaluate Tier 1 Risk Flags with sex awareness
+    risk_flags_eval = evaluate_risk_flags(processed_results, sex=demo["sex"])
+
     for flag in risk_flags_eval:
         risk_flag_rec = models.LabRiskFlag(
             id=str(uuid.uuid4()),
@@ -227,6 +251,8 @@ def confirm_lab_report(
     if not report:
         raise HTTPException(status_code=404, detail="Lab report not found")
 
+    demo = get_patient_demographics(db, report.patient_id)
+
     # Clear old test results if any exist
     db.query(models.LabTestResult).filter(models.LabTestResult.report_id == report.id).delete()
     db.query(models.LabRiskFlag).filter(models.LabRiskFlag.report_id == report.id).delete()
@@ -235,9 +261,12 @@ def confirm_lab_report(
 
     processed_results = []
     
-    # Run exact Phase 1 pipeline
+    # Run exact Phase 1 pipeline with demographic awareness
     for item in payload.results:
-        interp = interpret_result(item.test_name, item.value, item.unit)
+        interp = interpret_result(
+            item.test_name, item.value, item.unit,
+            age=demo["age_years"], sex=demo["sex"], is_pregnant=demo["is_pregnant"]
+        )
         test_res = models.LabTestResult(
             id=str(uuid.uuid4()),
             report_id=report.id,
@@ -271,7 +300,8 @@ def confirm_lab_report(
         })
 
     # Evaluate Tier 1 Risk Flags & Recommendations
-    risk_flags_eval = evaluate_risk_flags(processed_results)
+    risk_flags_eval = evaluate_risk_flags(processed_results, sex=demo["sex"])
+
     for flag in risk_flags_eval:
         risk_flag_rec = models.LabRiskFlag(
             id=str(uuid.uuid4()),
@@ -520,5 +550,56 @@ def get_public_shared_endpoint(
     Returns read-only report or summary content if token is active and unexpired.
     """
     return get_public_shared_content(db, token)
+
+
+# ---------- Phase 5: Patient Lab Demographic Profile Endpoints ----------
+
+@router.get("/patients/{patient_id}/profile")
+def get_patient_lab_profile_endpoint(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Returns demographic settings for age/sex-specific reference range tuning.
+    """
+    return get_patient_demographics(db, patient_id)
+
+
+@router.post("/patients/{patient_id}/profile")
+def update_patient_lab_profile_endpoint(
+    patient_id: str,
+    payload: PatientProfileUpdate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Updates or creates patient demographic settings (age_years, sex, is_pregnant).
+    """
+    if patient_id != user.id and user.role.value not in ("doctor", "admin"):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    profile = db.query(models.PatientLabProfile).filter(models.PatientLabProfile.patient_id == patient_id).first()
+    if not profile:
+        profile = models.PatientLabProfile(patient_id=patient_id)
+        db.add(profile)
+
+    if payload.age_years is not None:
+        profile.age_years = payload.age_years
+    if payload.sex is not None:
+        profile.sex = payload.sex.lower().strip()
+    if payload.is_pregnant is not None:
+        profile.is_pregnant = payload.is_pregnant
+
+    db.commit()
+    db.refresh(profile)
+
+    return {
+        "status": "updated",
+        "age_years": profile.age_years,
+        "sex": profile.sex,
+        "is_pregnant": profile.is_pregnant,
+    }
+
 
 
