@@ -23,7 +23,10 @@ from . import models
 from .lab_reference import LAB_TEST_REFERENCE
 from .lab_engine import interpret_result, evaluate_risk_flags, generate_recommendations
 from .lab_notifications import check_and_notify_critical_flags
+from .lab_audit import log_action, check_rate_limit, get_patient_audit_logs
+from .lab_ocr_normalizer import normalize_extracted_row
 from .lab_ocr import extract_lab_data_from_file, match_test_name
+
 
 from .lab_trends import (
     get_patient_lab_summary, get_test_trend, get_risk_flag_history, get_patient_reports_list
@@ -218,20 +221,33 @@ def upload_lab_report(
     db.add(report)
     db.commit()
 
-    # Perform OCR Extraction
+    # Perform OCR Extraction & Normalization
     ocr_res = extract_lab_data_from_file(file_path, source_type=source_type)
     extracted_rows = []
     for item in ocr_res.get("extracted_results", []):
         raw_name = item.get("test_name_raw", "")
-        match_info = match_test_name(raw_name)
+        raw_val = item.get("value", 0.0)
+        raw_unit = item.get("unit", "")
+        confidence = item.get("confidence", 0.8)
+
+        norm = normalize_extracted_row(raw_name, raw_val, raw_unit, confidence=confidence)
+        match_info = match_test_name(norm["canonical_name"])
+
         extracted_rows.append({
             "test_name_raw": raw_name,
             "test_name_matched": match_info["canonical_name"],
             "is_matched": match_info["is_matched"],
-            "value": item.get("value"),
-            "unit": item.get("unit") or match_info["unit"],
+            "value": norm["value"],
+            "unit": norm["unit"],
+            "original_unit": norm["original_unit"],
+            "unit_converted": norm["unit_converted"],
+            "needs_review": norm["needs_review"],
+            "review_reason": norm["review_reason"],
             "reference_range_raw": item.get("reference_range_raw", ""),
         })
+
+    log_action(db, "patient", user.id, "upload_lab_report", "report", report.id)
+
 
     return {
         "report_id": report.id,
@@ -548,6 +564,7 @@ def revoke_share_endpoint(
     """
     Revokes an active share link.
     """
+    log_action(db, "patient", user.id, "revoke_share_link", "share_token", token)
     return revoke_share_link(db, token=token, user_id=user.id)
 
 
@@ -558,9 +575,28 @@ def get_public_shared_endpoint(
 ):
     """
     PUBLIC endpoint (no authentication required).
-    Returns read-only report or summary content if token is active and unexpired.
+    Applies rate limiting (max 30 requests per minute per token) to prevent token brute-forcing.
     """
+    check_rate_limit(f"token_{token}", max_requests=30, window_seconds=60)
+    log_action(db, "public", None, "view_public_shared_report", "share_token", token)
     return get_public_shared_content(db, token)
+
+
+@router.get("/patients/{patient_id}/audit-log")
+def get_patient_audit_log_endpoint(
+    patient_id: str,
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """
+    Returns audit access trail for a patient's medical data (own data only).
+    """
+    if patient_id != user.id and user.role.value not in ("doctor", "admin"):
+        raise HTTPException(status_code=403, detail="Not authorized to access these audit logs")
+    return {"patient_id": patient_id, "audit_logs": get_patient_audit_logs(db, patient_id, skip, limit)}
+
 
 
 # ---------- Phase 5: Patient Lab Demographic Profile Endpoints ----------

@@ -274,6 +274,22 @@ class Notification(Base):
     risk_flag = relationship("LabRiskFlag", foreign_keys=[risk_flag_id])
 
 
+# ---------- Phase 9: HIPAA-Style Audit Logging ----------
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    actor_type = Column(String, nullable=False)  # "patient" | "doctor" | "system" | "public"
+    actor_id = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    target_type = Column(String, nullable=True)
+    target_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String, nullable=True)
+
+
+
 
 
 
