@@ -22,7 +22,9 @@ from .auth import get_current_user
 from . import models
 from .lab_reference import LAB_TEST_REFERENCE
 from .lab_engine import interpret_result, evaluate_risk_flags, generate_recommendations
+from .lab_notifications import check_and_notify_critical_flags
 from .lab_ocr import extract_lab_data_from_file, match_test_name
+
 from .lab_trends import (
     get_patient_lab_summary, get_test_trend, get_risk_flag_history, get_patient_reports_list
 )
@@ -171,7 +173,11 @@ def create_manual_lab_report(
     db.commit()
     db.refresh(report)
 
+    # Phase 7: Trigger Critical Alert In-App Notifications
+    check_and_notify_critical_flags(db, report.id)
+
     return {"report_id": report.id, "status": "completed"}
+
 
 
 @router.post("/reports/upload")
@@ -328,7 +334,11 @@ def confirm_lab_report(
     db.commit()
     db.refresh(report)
 
+    # Phase 7: Trigger Critical Alert In-App Notifications
+    check_and_notify_critical_flags(db, report.id)
+
     return {"report_id": report.id, "status": "completed"}
+
 
 
 @router.get("/reports/{report_id}")

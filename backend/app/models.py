@@ -254,5 +254,26 @@ class DoctorNote(Base):
     patient = relationship("User", foreign_keys=[patient_id])
 
 
+# ---------- Phase 7: Critical Alerts & In-App Notifications ----------
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    recipient_type = Column(String, nullable=False)  # "patient" | "doctor"
+    recipient_id = Column(String, nullable=False)    # FK to users.id or doctors.id
+    report_id = Column(String, ForeignKey("lab_reports.id"), nullable=True)
+    risk_flag_id = Column(String, ForeignKey("risk_flags.id"), nullable=True)
+
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    read_at = Column(DateTime, nullable=True)
+    delivered_via = Column(String, default="in_app")
+
+    report = relationship("LabReport", foreign_keys=[report_id])
+    risk_flag = relationship("LabRiskFlag", foreign_keys=[risk_flag_id])
+
+
+
 
 
