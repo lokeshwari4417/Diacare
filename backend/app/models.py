@@ -118,8 +118,11 @@ class LabReport(Base):
     patient_id = Column(String, ForeignKey("users.id"), nullable=False)
     lab_name = Column(String, nullable=True)
     report_date = Column(String, nullable=True)
-    status = Column(String, default="completed")
+    status = Column(String, default="completed")  # "completed" | "pending_review"
+    source_file_path = Column(String, nullable=True)
+    source_type = Column(String, nullable=True)  # 'image' | 'pdf'
     created_at = Column(DateTime, default=datetime.utcnow)
+
 
     patient = relationship("User", foreign_keys=[patient_id])
     test_results = relationship("LabTestResult", back_populates="report", cascade="all, delete-orphan")
