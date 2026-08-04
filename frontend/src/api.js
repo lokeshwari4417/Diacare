@@ -1,7 +1,7 @@
 // Thin fetch-based API client for the DiaCare backend.
 // All endpoints match backend/app routers exactly (see README for the full list).
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api' : 'https://diacare-backend-nukb.onrender.com')
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api' : 'https://diacare-backend-nukb.onrender.com')).replace(/\/+$/, '')
 
 
 function getToken() {

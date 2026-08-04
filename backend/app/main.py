@@ -1,8 +1,13 @@
 """
 DiaCare backend entrypoint. Wires up all routers, CORS, and DB init.
 """
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("diacare")
 
 from . import models
 from .database import engine, Base
@@ -75,6 +80,15 @@ app.include_router(analytics_router)
 
 
 
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception during {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
 
 
 @app.get("/")
